@@ -13,3 +13,6 @@
 
 # Mac finder directory attributes files
 .DS_Store
+
+# Mattrax Database
+mattrax.db
