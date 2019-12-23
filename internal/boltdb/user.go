@@ -11,18 +11,21 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// usersBucket stores the name of the boltdb bucket the users are stored in
 var usersBucket = []byte("users")
 
+// UserService contains the implemented functionality for users
 type UserService struct {
 	db *bolt.DB
 }
 
-func (us UserService) GetUsers() ([]types.User, error) {
+// GetAll returns all users
+func (us UserService) GetAll() ([]types.User, error) {
 	var users []types.User
 	err := us.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(usersBucket)
 		if bucket == nil {
-			return errors.New("error in GetUsers: users bucket does not exist")
+			return errors.New("error in UserService.GetAll: users bucket does not exist")
 		}
 
 		c := bucket.Cursor()
@@ -30,7 +33,7 @@ func (us UserService) GetUsers() ([]types.User, error) {
 			var user types.User
 			err := gob.NewDecoder(bytes.NewBuffer(userRaw)).Decode(&user)
 			if err != nil {
-				return errors.Wrap(err, "error in GetUsers: problem to decoding the user struct")
+				return errors.Wrap(err, "error in UserService.GetAll: problem to decoding the user struct")
 			}
 
 			// Strip password for security
@@ -45,12 +48,13 @@ func (us UserService) GetUsers() ([]types.User, error) {
 	return users, err
 }
 
+// getUser is an internal function for retriveing a user from the database
 func (us UserService) getUser(email string) (types.User, error) {
 	var user types.User
 	err := us.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(usersBucket)
 		if bucket == nil {
-			return errors.New("error in GetUser: users bucket does not exist")
+			return errors.New("error in UserService.getUser: users bucket does not exist")
 		}
 
 		userRaw := bucket.Get([]byte(email))
@@ -67,7 +71,8 @@ func (us UserService) getUser(email string) (types.User, error) {
 	return user, err
 }
 
-func (us UserService) GetUser(email string) (types.User, error) {
+// Get returns a user by their email
+func (us UserService) Get(email string) (types.User, error) {
 	user, err := us.getUser(email)
 
 	// Strip password for security
@@ -76,11 +81,12 @@ func (us UserService) GetUser(email string) (types.User, error) {
 	return user, err
 }
 
-func (us UserService) CreateOrEditUser(email string, user types.User) error {
+// CreateOrEdit creates or edits an existing user if one exists
+func (us UserService) CreateOrEdit(email string, user types.User) error {
 	// Encode User
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(user); err != nil {
-		return errors.Wrap(err, "error in CreateOrEditUser: problem to encoding user struct")
+		return errors.Wrap(err, "error in UserService.CreateOrEdit: problem to encoding user struct")
 	}
 	userRaw := buf.Bytes()
 
@@ -88,7 +94,7 @@ func (us UserService) CreateOrEditUser(email string, user types.User) error {
 	err := us.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(usersBucket)
 		if bucket == nil {
-			return errors.New("error in CreateOrEditUser: users bucket does not exist")
+			return errors.New("error in UserService.CreateOrEdit: users bucket does not exist")
 		}
 
 		err := bucket.Put([]byte(email), userRaw)
@@ -98,26 +104,53 @@ func (us UserService) CreateOrEditUser(email string, user types.User) error {
 	return err
 }
 
+// VerifyLogin takes in a users email & password and checks if they match the users hashed password
 func (us UserService) VerifyLogin(email string, password string) (bool, error) {
+	// Get User
 	user, err := us.getUser(email)
 	if err != nil {
 		return false, err
 	}
 
+	// Compare password against hash
 	err = bcrypt.CompareHashAndPassword(user.Password, []byte(password))
 	if err == nil {
 		return true, nil
 	} else if err == bcrypt.ErrMismatchedHashAndPassword {
 		return false, nil
 	}
+
 	return false, err
 }
 
+// HasPermission takes a users email & a permission and checks if the user contains that permission.
+// It also handles wildcard permissions that can be given to a user.
+func (us UserService) HasPermission(email string, permission string) (bool, error) {
+	// Get User
+	user, err := us.getUser(email)
+	if err != nil {
+		return false, err
+	}
+
+	// Check if user contains permission or equivalent
+	for _, permission := range user.Permissions {
+		if permission == "*" {
+			return true, nil
+		} else if permission == permission {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// HashPassword returns a password in hashed form ready to be stored into the DB
 func (us UserService) HashPassword(password string) (types.RawPassword, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 11)
 	return types.RawPassword(hashedPassword), err
 }
 
+// NewUserService creates and initialises a new UserService from a DB connection
 func NewUserService(db *bolt.DB) (UserService, error) {
 	err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(usersBucket)

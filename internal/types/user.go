@@ -2,7 +2,7 @@ package types
 
 import "time"
 
-// rawPassword is a string that contains the hashed + salted password.
+// RawPassword is a string that contains the hashed + salted password.
 // This type should NEVER EVER EVER contain a plain text password!!!!!!
 // It is not exposed outside this package to force the use of helpers to keep
 // the password secure!
@@ -29,9 +29,10 @@ type Action struct {
 
 // UserService contains the implemented functionality for users
 type UserService interface {
-	GetUsers() ([]User, error)
-	GetUser(email string) (User, error)
-	CreateOrEditUser(email string, user User) error
+	GetAll() ([]User, error)
+	Get(email string) (User, error)
+	CreateOrEdit(email string, user User) error
 	VerifyLogin(email string, password string) (bool, error)
+	HasPermission(email string, permission string) (bool, error)
 	HashPassword(password string) (RawPassword, error)
 }

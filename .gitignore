@@ -16,3 +16,6 @@
 
 # Mattrax Database
 mattrax.db
+
+# Prevent HTTPS certs for devlopment being exposed
+/certs
