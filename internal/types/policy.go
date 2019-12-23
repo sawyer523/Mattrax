@@ -5,12 +5,12 @@ type PolicyUUID []byte
 
 // A Policy contains instructions that are send to scoped managed device upon enrollment
 type Policy struct {
-	UUID        PolicyUUID
+	UUID        PolicyUUID `sqlgen:",primary"`
 	DisplayName string
-	Payload     []PolicyPayload
+	Payload     []PolicyPayload `graphql:",optional"`
 }
 
-// Payload is a raw MDM instruction contain inside a Policy
+// PolicyPayload is a raw MDM instruction contain inside a Policy
 type PolicyPayload struct {
 	DisplayName  string
 	Instructions map[MDMProtcol][]byte // This map is between an MDMProtocol and raw payload to be sent to the device

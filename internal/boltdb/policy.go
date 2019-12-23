@@ -50,7 +50,7 @@ func (ps PolicyService) Get(uuid types.PolicyUUID) (types.Policy, error) {
 	err := ps.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(policiesBucket)
 		if bucket == nil {
-			return errors.New("error in PolicyService.Get: policys bucket does not exist")
+			return errors.New("error in PolicyService.Get: policies bucket does not exist")
 		}
 
 		policyRaw := bucket.Get(uuid)
@@ -80,7 +80,7 @@ func (ps PolicyService) CreateOrEdit(uuid types.PolicyUUID, policy types.Policy)
 	err := ps.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(policiesBucket)
 		if bucket == nil {
-			return errors.New("error in PolicyService.CreateOrEdit: policys bucket does not exist")
+			return errors.New("error in PolicyService.CreateOrEdit: policies bucket does not exist")
 		}
 
 		err := bucket.Put(uuid, policyRaw)

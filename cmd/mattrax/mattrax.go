@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	mattrax "github.com/mattrax/Mattrax/internal"
+	"github.com/mattrax/Mattrax/internal/api"
 	"github.com/mattrax/Mattrax/internal/boltdb"
 )
 
@@ -27,24 +29,34 @@ func main() {
 		panic(err) // TODO
 	}
 
+	settingsService, err := boltdb.NewSettingsService(db)
+	if err != nil {
+		panic(err) // TODO
+	}
+
 	server := mattrax.Server{
 		Config: mattrax.Config{
-			TenantName:    "Acme School Inc",
-			PrimaryDomain: "mdm.otbeaumont.me",
+			Port:            8000,
+			Domains:         []string{"mdm.otbeaumont.me", "enterpriseenrollment.otbeaumont.me"},
+			CertFile:        "./certs/server.crt",
+			KeyFile:         "./certs/server.key",
+			DevelopmentMode: true,
 		},
-		UserService:   userService,
-		PolicyService: policyService,
+		UserService:     userService,
+		PolicyService:   policyService,
+		SettingsService: settingsService,
 	}
 
 	r := mux.NewRouter()
+
+	api.InitAPI(server, r)
 
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Mattrax Server. Created By Oscar Beaumont.")
 	})
 
 	// TODO: Gracefull Shutdown
-	log.Println("Listening on port 8000...")
-	log.Fatal(http.ListenAndServeTLS(":8000", "./certs/server.crt", "./certs/server.key", r))
-
-	_ = server // TEMP
+	port := strconv.Itoa(server.Config.Port)
+	log.Println("Listening on port " + port + "...")
+	log.Fatal(http.ListenAndServeTLS(":"+port, server.Config.CertFile, server.Config.KeyFile, r))
 }

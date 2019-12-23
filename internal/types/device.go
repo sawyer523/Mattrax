@@ -15,7 +15,7 @@ const (
 
 // Device is an electronic device that is managed by the MDM server
 type Device struct {
-	UUID            DeviceUUID
+	UUID            DeviceUUID `sqlgen:",primary"`
 	DisplayName     string
 	Owner           User
 	SerialNumber    string // This is set by the devices manufacturer

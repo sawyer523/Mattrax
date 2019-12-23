@@ -145,8 +145,8 @@ func (us UserService) HasPermission(email string, permission string) (bool, erro
 }
 
 // HashPassword returns a password in hashed form ready to be stored into the DB
-func (us UserService) HashPassword(password string) (types.RawPassword, error) {
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 11)
+func (us UserService) HashPassword(password []byte) (types.RawPassword, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword(password, 11)
 	return types.RawPassword(hashedPassword), err
 }
 

@@ -14,10 +14,10 @@ type Permissions []string
 // A User is either an administrator or end user who owns a managed device.
 type User struct {
 	DisplayName string
-	Email       string
+	Email       string      `sqlgen:",primary"`
 	Password    RawPassword `graphql:"-"`
-	Activity    []Action    // TODO: API Read only
-	Permissions Permissions // TODO: API Require PERM to change
+	Activity    []Action    `graphql:",optional"` // TODO: API Read only
+	Permissions Permissions `graphql:",optional"` // TODO: API Require PERM to change
 }
 
 // An Action is an event taken by a user.
@@ -34,5 +34,5 @@ type UserService interface {
 	CreateOrEdit(email string, user User) error
 	VerifyLogin(email string, password string) (bool, error)
 	HasPermission(email string, permission string) (bool, error)
-	HashPassword(password string) (RawPassword, error)
+	HashPassword(password []byte) (RawPassword, error)
 }

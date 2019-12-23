@@ -6,13 +6,17 @@ import (
 
 // Server holds the global server state
 type Server struct {
-	Config        Config
-	UserService   types.UserService
-	PolicyService types.PolicyService
+	Config          Config
+	UserService     types.UserService
+	PolicyService   types.PolicyService
+	SettingsService types.SettingsService
 }
 
 // Config holds the global server config
 type Config struct {
-	TenantName    string
-	PrimaryDomain string
+	Port            int
+	Domains         []string
+	CertFile        string
+	KeyFile         string
+	DevelopmentMode bool
 }
