@@ -8,7 +8,7 @@ type MustUnderstand struct {
 	Value          string `xml:",innerxml"`
 }
 
-// GenerateActivityID returns a new random UUID string to be used as an ActivityID
-func GenerateActivityID() string {
+// GenerateID returns a new random UUID string to be used as an ID
+func GenerateID() string {
 	return uuid.NewV4().String()
 }

@@ -21,11 +21,15 @@ func settings(server mattrax.Server, builder *schemabuilder.Schema) {
 	})
 
 	mutation := builder.Mutation()
-	mutation.FieldFunc("updateSettings", func(settings types.Settings) types.Settings {
-		err := server.SettingsService.Update(settings)
-		if err != nil {
+	mutation.FieldFunc("updateSettings", func(settings types.Settings) (types.Settings, error) {
+		if err := settings.Verify(); err != nil {
+			return types.Settings{}, err
+		}
+
+		if err := server.SettingsService.Update(settings); err != nil {
 			panic(err) // TODO: Handle
 		}
-		return settings
+
+		return settings, nil
 	})
 }

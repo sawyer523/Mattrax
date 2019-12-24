@@ -66,7 +66,6 @@ func Discovery(server mattrax.Server) http.HandlerFunc {
 		if err := cmd.VerifyContext(server.Config, settings); err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusBadRequest)
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
@@ -102,7 +101,7 @@ func Discovery(server mattrax.Server) http.HandlerFunc {
 				MustUnderstand: "1",
 				Value:          "http://schemas.microsoft.com/windows/management/2012/01/enrollment/IDiscoveryService/DiscoverResponse",
 			},
-			HeaderActivityID: wtypes.GenerateActivityID(),
+			HeaderActivityID: wtypes.GenerateID(),
 			HeaderRelatesTo:  cmd.Header.MessageID,
 			Body: wtypes.MdeDiscoveryResponseBody{
 				NamespaceXSI: "http://www.w3.org/2001/XMLSchema-instance",

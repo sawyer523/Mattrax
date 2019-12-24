@@ -24,7 +24,7 @@ type MdeDiscoveryRequest struct {
 	} `xml:"s:Header"`
 	Body struct {
 		Discover struct {
-			Request struct { // Attribute xmlns:i not implemented
+			Request struct {
 				EmailAddress       string `xml:"EmailAddress"`
 				RequestVersion     string `xml:"RequestVersion"`
 				DeviceType         string `xml:"DeviceType"`
