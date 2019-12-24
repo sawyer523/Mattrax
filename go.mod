@@ -11,6 +11,7 @@ require (
 	github.com/pkg/errors v0.8.1
 	github.com/samsarahq/go v0.0.0-20191220233105-8077c9fbaed5 // indirect
 	github.com/samsarahq/thunder v0.5.0
+	github.com/satori/go.uuid v1.2.0
 	golang.org/x/crypto v0.0.0-20191219195013-becbf705a915
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e // indirect
 )

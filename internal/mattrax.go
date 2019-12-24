@@ -14,9 +14,10 @@ type Server struct {
 
 // Config holds the global server config
 type Config struct {
-	Port            int
-	Domains         []string
-	CertFile        string
-	KeyFile         string
-	DevelopmentMode bool
+	Port                   int
+	PrimaryDomain          string
+	WindowsDiscoveryDomain string
+	CertFile               string
+	KeyFile                string
+	DevelopmentMode        bool
 }

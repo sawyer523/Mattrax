@@ -10,6 +10,7 @@ import (
 	mattrax "github.com/mattrax/Mattrax/internal"
 	"github.com/mattrax/Mattrax/internal/api"
 	"github.com/mattrax/Mattrax/internal/boltdb"
+	"github.com/mattrax/Mattrax/mdm/windows"
 )
 
 func main() {
@@ -36,11 +37,12 @@ func main() {
 
 	server := mattrax.Server{
 		Config: mattrax.Config{
-			Port:            8000,
-			Domains:         []string{"mdm.otbeaumont.me", "enterpriseenrollment.otbeaumont.me"},
-			CertFile:        "./certs/server.crt",
-			KeyFile:         "./certs/server.key",
-			DevelopmentMode: true,
+			Port:                   443,
+			PrimaryDomain:          "mdm.otbeaumont.me",
+			WindowsDiscoveryDomain: "enterpriseenrollment.otbeaumont.me",
+			CertFile:               "./certs/cert.pem",
+			KeyFile:                "./certs/privkey.pem",
+			DevelopmentMode:        true,
 		},
 		UserService:     userService,
 		PolicyService:   policyService,
@@ -48,6 +50,8 @@ func main() {
 	}
 
 	r := mux.NewRouter()
+
+	windows.Init(server, r)
 
 	api.InitAPI(server, r)
 

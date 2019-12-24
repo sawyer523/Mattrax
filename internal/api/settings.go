@@ -13,11 +13,18 @@ func settings(server mattrax.Server, builder *schemabuilder.Schema) {
 	query := builder.Query()
 	query.FieldFunc("settings", server.SettingsService.Get)
 
+	var enumField types.AuthPolicy
+	builder.Enum(enumField, map[string]types.AuthPolicy{
+		"OnPremise":   types.AuthPolicyOnPremise,
+		"Federated":   types.AuthPolicyFederated,
+		"Certificate": types.AuthPolicyCertificate,
+	})
+
 	mutation := builder.Mutation()
 	mutation.FieldFunc("updateSettings", func(settings types.Settings) types.Settings {
 		err := server.SettingsService.Update(settings)
 		if err != nil {
-			panic(err) // TODO: Hande
+			panic(err) // TODO: Handle
 		}
 		return settings
 	})
