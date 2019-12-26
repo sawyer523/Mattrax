@@ -99,8 +99,8 @@ func (cmd MdeDiscoveryRequest) VerifyContext(config mattrax.Config, settings typ
 	if toAddrRaw, err := url.Parse(cmd.Header.To); err != nil {
 		// This should NEVER be called because the url is verified in VerifyStructure
 		return errors.New("invalid MdeDiscoveryRequest: invalid To '" + cmd.Header.To + "'")
-	} else if strings.ToLower(toAddrRaw.Hostname()) != strings.ToLower(config.WindowsDiscoveryDomain) {
-		return errors.New("invalid MdeDiscoveryRequest: this requested server ('" + cmd.Header.To + "') isn't this server ('" + config.WindowsDiscoveryDomain + "')")
+	} else if !(strings.ToLower(toAddrRaw.Hostname()) == strings.ToLower(config.PrimaryDomain) || strings.ToLower(toAddrRaw.Hostname()) == strings.ToLower(config.WindowsDiscoveryDomain)) {
+		return errors.New("invalid MdeDiscoveryRequest: this requested server ('" + strings.ToLower(toAddrRaw.Hostname()) + "') isn't this server ('" + config.WindowsDiscoveryDomain + "' or '" + config.PrimaryDomain + "')")
 	}
 
 	// Verify valid email domain
@@ -116,7 +116,7 @@ func (cmd MdeDiscoveryRequest) VerifyContext(config mattrax.Config, settings typ
 		}
 	}
 
-	return errors.New("invalid MdeDiscoveryRequest: the request failed verification")
+	return errors.New("invalid MdeDiscoveryRequest: the request failed verification") // TODO: Better warning about ManagedDomains
 }
 
 func (cmd MdeDiscoveryRequest) IsAuthPolicySupport(authPolicy types.AuthPolicy) bool {

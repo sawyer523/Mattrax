@@ -33,6 +33,12 @@ func Discovery(server mattrax.Server) http.HandlerFunc {
 		Path:   "/EnrollmentServer/Enrollment.svc",
 	}).String()
 
+	internalFederationServiceURL := (&url.URL{
+		Scheme: "https",
+		Host:   server.Config.PrimaryDomain,
+		Path:   "/EnrollmentServer/Authenticate",
+	}).String()
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Verify client user-agent
 		if r.Header.Get("User-Agent") != "ENROLLClient" {
@@ -87,7 +93,12 @@ func Discovery(server mattrax.Server) http.HandlerFunc {
 				return
 			}
 			authPolicy = "Federated"
-			authenticationServiceUrl = settings.Windows.FederationPortalURL
+			if settings.Windows.FederationPortalURL == "" {
+				authenticationServiceUrl = internalFederationServiceURL
+
+			} else {
+				authenticationServiceUrl = settings.Windows.FederationPortalURL
+			}
 		} else {
 			log.Println(errors.New("error DiscoveryPOST: invalid AuthPolicy '" + string(settings.Windows.AuthPolicy) + "'"))
 			w.WriteHeader(http.StatusInternalServerError)
