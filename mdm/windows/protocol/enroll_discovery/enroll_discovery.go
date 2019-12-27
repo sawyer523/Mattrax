@@ -1,7 +1,6 @@
-package protocol
+package enrolldiscovery
 
 import (
-	"errors"
 	"log"
 	"net/http"
 	"net/url"
@@ -9,18 +8,19 @@ import (
 
 	mattrax "github.com/mattrax/Mattrax/internal"
 	"github.com/mattrax/Mattrax/internal/types"
-	wtypes "github.com/mattrax/Mattrax/mdm/windows/types"
+	generic "github.com/mattrax/Mattrax/mdm/windows/protocol/generic"
+	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
-	perrors "github.com/pkg/errors"
+	"github.com/pkg/errors"
 )
 
-func Discover(server mattrax.Server) http.HandlerFunc {
+func GETHandler(server mattrax.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 }
 
-func Discovery(server mattrax.Server) http.HandlerFunc {
+func Handler(server mattrax.Server) http.HandlerFunc {
 	enrollmentPolicyServiceURL := (&url.URL{
 		Scheme: "https",
 		Host:   server.Config.PrimaryDomain,
@@ -40,37 +40,23 @@ func Discovery(server mattrax.Server) http.HandlerFunc {
 	}).String()
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Verify client user-agent
-		if r.Header.Get("User-Agent") != "ENROLLClient" {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
 		// Decode request from client
-		var cmd wtypes.MdeDiscoveryRequest
+		var cmd Request
 		if err := xml.NewDecoder(r.Body).Decode(&cmd); err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		// Verify request structure
-		if err := cmd.VerifyStructure(); err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		// Get Matrax settings
+		/* TEMP: Getting settings will be refactored to not be expensive so this is temporary */
 		settings, err := server.SettingsService.Get()
 		if err != nil {
-			log.Println(perrors.Wrap(err, "error DiscoveryPOST: failed to retrieve settings"))
-
+			panic(err)
 		}
+		/* END TEMP */
 
-		// Verify request
-		if err := cmd.VerifyContext(server.Config, settings); err != nil {
-			log.Println(err)
+		if err := cmd.Verify(server.Config, settings); err != nil {
+			log.Println(errors.Wrap(err, "invalid MdeDiscoveryRequest:"))
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -105,19 +91,19 @@ func Discovery(server mattrax.Server) http.HandlerFunc {
 			return
 		}
 
-		res := wtypes.MdeDiscoveryResponseEnvelope{
+		res := ResponseEnvelope{
 			NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
 			NamespaceA: "http://www.w3.org/2005/08/addressing",
-			HeaderAction: wtypes.MustUnderstand{
+			HeaderAction: soap.MustUnderstand{
 				MustUnderstand: "1",
 				Value:          "http://schemas.microsoft.com/windows/management/2012/01/enrollment/IDiscoveryService/DiscoverResponse",
 			},
-			HeaderActivityID: wtypes.GenerateID(),
+			HeaderActivityID: generic.GenerateID(),
 			HeaderRelatesTo:  cmd.Header.MessageID,
-			Body: wtypes.MdeDiscoveryResponseBody{
+			Body: ResponseBody{
 				NamespaceXSI: "http://www.w3.org/2001/XMLSchema-instance",
 				NamespaceXSD: "http://www.w3.org/2001/XMLSchema",
-				DiscoverResponse: wtypes.DiscoverResponse{
+				DiscoverResponse: Response{
 					AuthPolicy:                 authPolicy,
 					EnrollmentVersion:          cmd.Body.Discover.Request.RequestVersion,
 					EnrollmentPolicyServiceURL: enrollmentPolicyServiceURL,

@@ -5,13 +5,11 @@ import (
 	"crypto/rsa"
 	"crypto/sha1"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/asn1"
 	"encoding/base64"
 	"log"
 	"math/big"
 	mathrand "math/rand"
-	"strings"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -109,13 +107,11 @@ func (cs CertificateService) SignWSTEPRequest(binarySecurityToken string) ([]byt
 		PublicKey:          csr.PublicKey,
 		SerialNumber:       big.NewInt(2), // TODO: What does it do, should it be increasing?
 		Issuer:             identityCertificate.Issuer,
-		Subject: pkix.Name{ // TEMP
-			CommonName: strings.ToLower(strings.Split(csr.Subject.CommonName, "!")[0]),
-		}, //csr.Subject,
-		NotBefore:   NotBefore1,
-		NotAfter:    NotBefore1.Add(365 * 24 * time.Hour),           // TODO: Configurable + Working renewal
-		KeyUsage:    x509.KeyUsageDigitalSignature,                  // TODO: What does it do
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, // TODO: What does it do
+		Subject:            csr.Subject,
+		NotBefore:          NotBefore1,
+		NotAfter:           NotBefore1.Add(365 * 24 * time.Hour),           // TODO: Configurable + Working renewal
+		KeyUsage:           x509.KeyUsageDigitalSignature,                  // TODO: What does it do
+		ExtKeyUsage:        []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, // TODO: What does it do
 	}
 
 	clientCRTRaw, err := x509.CreateCertificate(rand.Reader, clientCertificate, identityCertificate, csr.PublicKey, identityPrivKey)

@@ -1,4 +1,4 @@
-package protocol
+package enrollprovision
 
 import (
 	"crypto/sha1"
@@ -11,11 +11,12 @@ import (
 	"strings"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
-	wtypes "github.com/mattrax/Mattrax/mdm/windows/types"
+	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
+	"github.com/pkg/errors"
 )
 
-func Enrollment(server mattrax.Server) http.HandlerFunc {
+func Handler(server mattrax.Server) http.HandlerFunc {
 	managementServerURL := (&url.URL{
 		Scheme: "https",
 		Host:   server.Config.PrimaryDomain,
@@ -29,14 +30,8 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 	}).String()
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Verify client user-agent
-		if r.Header.Get("User-Agent") != "ENROLLClient" {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
 		// Decode request from client
-		var cmd wtypes.MdeEnrollmentRequest
+		var cmd Request
 		if err := xml.NewDecoder(r.Body).Decode(&cmd); err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusBadRequest)
@@ -44,13 +39,11 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 		}
 
 		// Verify request structure
-		if err := cmd.VerifyStructure(); err != nil {
-			log.Println(err)
+		if err := cmd.Verify(server.Config); err != nil {
+			log.Println(errors.Wrap(err, "invalid MdeDiscoveryRequest:"))
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-
-		// TODO: VerifyContext
 
 		// TODO: Create Device in DB
 		// defer func() {
@@ -84,22 +77,22 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 		}
 
 		// Create provisioning profile
-		resProvisioningProfile := wtypes.MdeWapProvisioningDoc{
+		resProvisioningProfile := WapProvisioningDoc{
 			Version: "1.1",
-			Characteristic: []wtypes.MdeWapCharacteristic{
-				wtypes.MdeWapCharacteristic{
+			Characteristic: []WapCharacteristic{
+				WapCharacteristic{
 					Type: "CertificateStore",
-					Characteristic: []wtypes.MdeWapCharacteristic{
-						wtypes.MdeWapCharacteristic{
+					Characteristics: []WapCharacteristic{
+						WapCharacteristic{
 							Type: "Root",
-							Characteristic: []wtypes.MdeWapCharacteristic{
-								wtypes.MdeWapCharacteristic{
+							Characteristics: []WapCharacteristic{
+								WapCharacteristic{
 									Type: "System",
-									Characteristic: []wtypes.MdeWapCharacteristic{
-										wtypes.MdeWapCharacteristic{
+									Characteristics: []WapCharacteristic{
+										WapCharacteristic{
 											Type: identityCertFingerprint,
-											Params: []wtypes.MdeWapParm{
-												wtypes.MdeWapParm{
+											Params: []WapParameter{
+												WapParameter{
 													Name:  "EncodedCertificate",
 													Value: base64.StdEncoding.EncodeToString(identityCertificateRaw),
 												},
@@ -109,33 +102,33 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 								},
 							},
 						},
-						wtypes.MdeWapCharacteristic{
+						WapCharacteristic{
 							Type: "My",
-							Characteristic: []wtypes.MdeWapCharacteristic{
-								wtypes.MdeWapCharacteristic{
+							Characteristics: []WapCharacteristic{
+								WapCharacteristic{
 									Type: "User",
-									Characteristic: []wtypes.MdeWapCharacteristic{
-										wtypes.MdeWapCharacteristic{
+									Characteristics: []WapCharacteristic{
+										WapCharacteristic{
 											Type: signedClientCertFingerprint,
-											Params: []wtypes.MdeWapParm{
-												wtypes.MdeWapParm{
+											Params: []WapParameter{
+												WapParameter{
 													Name:  "EncodedCertificate",
 													Value: base64.StdEncoding.EncodeToString(signedClientCert),
 												},
 											},
 										},
-										wtypes.MdeWapCharacteristic{
+										WapCharacteristic{
 											Type: "PrivateKeyContainer",
-											Params: []wtypes.MdeWapParm{
-												wtypes.MdeWapParm{
+											Params: []WapParameter{
+												WapParameter{
 													Name:  "KeySpec",
 													Value: "2",
 												},
-												wtypes.MdeWapParm{
+												WapParameter{
 													Name:  "ContainerName",
 													Value: "ConfigMgrEnrollment",
 												},
-												wtypes.MdeWapParm{
+												WapParameter{
 													Name:  "ProviderType",
 													Value: "1",
 												},
@@ -147,109 +140,109 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 						},
 					},
 				},
-				wtypes.MdeWapCharacteristic{
+				WapCharacteristic{
 					Type: "APPLICATION",
-					Params: []wtypes.MdeWapParm{
-						wtypes.MdeWapParm{
+					Params: []WapParameter{
+						WapParameter{
 							Name:  "APPID",
 							Value: "w7",
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "PROVIDER-ID",
 							Value: "Mattrax MDM Server",
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "NAME",
 							Value: settings.TenantName,
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "SSPHyperlink",
 							Value: "http://go.microsoft.com/fwlink/?LinkId=255310", // Enterprise Management App
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "ADDR",
 							Value: managementServerURL,
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "ServerList",
 							Value: managementServerListURL,
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "ROLE",
 							Value: "4294967295", // ? Possible Values
 						},
 						/* Discriminator to set whether the client should do Certificate Revocation List checking. */
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "CRLCheck",
 							Value: "0",
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "CONNRETRYFREQ",
 							Value: "6",
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "INITIALBACKOFFTIME",
 							Value: "30000",
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "MAXBACKOFFTIME",
 							Value: "120000",
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name: "BACKCOMPATRETRYDISABLED",
 						},
-						wtypes.MdeWapParm{
+						WapParameter{
 							Name:  "DEFAULTENCODING",
 							Value: "application/vnd.syncml.dm+wbxml",
 						},
 						// TODO: This is causing issues
-						// wtypes.MdeWapParm{
+						// WapParameter{
 						// 	Name:  "SSLCLIENTCERTSEARCHCRITERIA",
 						// 	Value: "Subject=CN=%3d" + clientCert.Subject.CommonName + "&amp;Stores=MY%5CUser", // TODO: Correct Value
 						// },
 					},
-					Characteristic: []wtypes.MdeWapCharacteristic{
-						wtypes.MdeWapCharacteristic{
+					Characteristics: []WapCharacteristic{
+						WapCharacteristic{
 							Type: "APPAUTH",
-							Params: []wtypes.MdeWapParm{
-								wtypes.MdeWapParm{
+							Params: []WapParameter{
+								WapParameter{
 									Name:  "AAUTHLEVEL",
 									Value: "CLIENT",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:  "AAUTHTYPE",
 									Value: "DIGEST",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:  "AAUTHSECRET",
 									Value: "dummy",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:  "AAUTHDATA",
 									Value: "nonce",
 								},
 							},
 						},
-						wtypes.MdeWapCharacteristic{
+						WapCharacteristic{
 							Type: "APPAUTH",
-							Params: []wtypes.MdeWapParm{
-								wtypes.MdeWapParm{
+							Params: []WapParameter{
+								WapParameter{
 									Name:  "AAUTHLEVEL",
 									Value: "APPSRV",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:  "AAUTHTYPE",
 									Value: "DIGEST",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:  "AAUTHNAME",
 									Value: "dummy",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:  "AAUTHSECRET",
 									Value: "dummy",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:  "AAUTHDATA",
 									Value: "nonce",
 								},
@@ -257,48 +250,48 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 						},
 					},
 				},
-				wtypes.MdeWapCharacteristic{
+				WapCharacteristic{
 					Type: "Registry",
-					Characteristic: []wtypes.MdeWapCharacteristic{
-						wtypes.MdeWapCharacteristic{
+					Characteristics: []WapCharacteristic{
+						WapCharacteristic{
 							Type: `HKLM\Security\MachineEnrollment`,
-							Params: []wtypes.MdeWapParm{
-								wtypes.MdeWapParm{
+							Params: []WapParameter{
+								WapParameter{
 									Name:     "RenewalPeriod",
 									Value:    "363",
 									DataType: "integer",
 								},
 							},
 						},
-						wtypes.MdeWapCharacteristic{
+						WapCharacteristic{
 							Type: `HKLM\Security\MachineEnrollment\OmaDmRetry`,
-							Params: []wtypes.MdeWapParm{
-								wtypes.MdeWapParm{
+							Params: []WapParameter{
+								WapParameter{
 									Name:     "NumRetries",
 									Value:    "8",
 									DataType: "integer",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "RetryInterval",
 									Value:    "15",
 									DataType: "integer",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "AuxNumRetries",
 									Value:    "5",
 									DataType: "integer",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "AuxRetryInterval",
 									Value:    "3",
 									DataType: "integer",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "Aux2NumRetries",
 									Value:    "0",
 									DataType: "integer",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "Aux2RetryInterval",
 									Value:    "480",
 									DataType: "integer",
@@ -307,13 +300,13 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 						},
 					},
 				},
-				wtypes.MdeWapCharacteristic{
+				WapCharacteristic{
 					Type: "Registry",
-					Characteristic: []wtypes.MdeWapCharacteristic{
-						wtypes.MdeWapCharacteristic{
+					Characteristics: []WapCharacteristic{
+						WapCharacteristic{
 							Type: `HKLM\Software\Windows\CurrentVersion\MDM\MachineEnrollment`,
-							Params: []wtypes.MdeWapParm{
-								wtypes.MdeWapParm{
+							Params: []WapParameter{
+								WapParameter{
 									Name:     "DeviceName",
 									Value:    "TODO",
 									DataType: "string",
@@ -322,40 +315,40 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 						},
 					},
 				},
-				wtypes.MdeWapCharacteristic{
+				WapCharacteristic{
 					Type: "Registry",
-					Characteristic: []wtypes.MdeWapCharacteristic{
-						wtypes.MdeWapCharacteristic{
+					Characteristics: []WapCharacteristic{
+						WapCharacteristic{
 							Type: `HKLM\SOFTWARE\Windows\CurrentVersion\MDM\MachineEnrollment`,
-							Params: []wtypes.MdeWapParm{
+							Params: []WapParameter{
 								// Thumbprint of root certificate.
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "SslServerRootCertHash",
 									Value:    identityCertFingerprint,
 									DataType: "string",
 								},
 								// Store for device certificate.
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "SslClientCertStore",
 									Value:    "MY%5CSystem",
 									DataType: "string",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "SslClientCertSubjectName",
 									Value:    "Subject=CN=%3d" + clientCert.Subject.CommonName, //"CN%3de4c6b893-07a7-4b24-878e-9d8602c3d289",
 									DataType: "string",
 								},
-								wtypes.MdeWapParm{
+								WapParameter{
 									Name:     "SslClientCertHash",
 									Value:    signedClientCertFingerprint,
 									DataType: "string",
 								},
 							},
 						},
-						wtypes.MdeWapCharacteristic{
+						WapCharacteristic{
 							Type: `HKLM\Security\Provisioning\OMADM\Accounts\037B1F0D3842015588E753CDE76EC724`,
-							Params: []wtypes.MdeWapParm{
-								wtypes.MdeWapParm{
+							Params: []WapParameter{
+								WapParameter{
 									Name:     "SslClientCertReference",
 									Value:    "My;System;" + signedClientCertFingerprint,
 									DataType: "string",
@@ -374,32 +367,30 @@ func Enrollment(server mattrax.Server) http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 
-		fmt.Println(string(provisioningProfile)) // TEMP
-
 		// Create response
-		res := wtypes.MdeEnrollmentResponseEnvelope{
+		res := ResponseEnvelope{
 			NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
 			NamespaceA: "http://www.w3.org/2005/08/addressing",
 			NamespaceU: "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd",
-			HeaderAction: wtypes.MustUnderstand{
+			HeaderAction: soap.MustUnderstand{
 				MustUnderstand: "1",
 				Value:          "http://schemas.microsoft.com/windows/pki/2009/01/enrollment/RSTRC/wstep",
 			},
 			HeaderRelatesTo: cmd.Header.MessageID,
-			HeaderSecurity: wtypes.MdeEnrollmentHeaderSecurity{
+			HeaderSecurity: HeaderSecurity{
 				NamespaceO:     "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd",
 				MustUnderstand: "1",
-				Timestamp: wtypes.MdeEnrollmentHeaderSecurityTimestamp{
+				Timestamp: HeaderSecurityTimestamp{
 					// TODO: all these values do what??
 					ID:      "_0",
 					Created: "2018-11-30T00:32:59.420Z",
 					Expires: "2018-12-30T00:37:59.420Z",
 				},
 			},
-			Body: wtypes.MdeEnrollmentResponseBody{
+			Body: ResponseBody{
 				TokenType:          "http://schemas.microsoft.com/5.0.0.0/ConfigurationManager/Enrollment/DeviceEnrollmentToken",
 				DispositionMessage: "", // TODO: Wrong type + What does it do?
-				BinarySecurityToken: wtypes.MdeBinarySecurityToken{
+				BinarySecurityToken: BinarySecurityToken{
 					ValueType:    "http://schemas.microsoft.com/5.0.0.0/ConfigurationManager/Enrollment/DeviceEnrollmentProvisionDoc",
 					EncodingType: "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd#base64binary",
 					Value:        base64.StdEncoding.EncodeToString(provisioningProfile),

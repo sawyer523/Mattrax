@@ -6,17 +6,19 @@ import (
 
 	"github.com/gorilla/mux"
 	mattrax "github.com/mattrax/Mattrax/internal"
-	"github.com/mattrax/Mattrax/mdm/windows/protocol"
+	enrolldiscovery "github.com/mattrax/Mattrax/mdm/windows/protocol/enroll_discovery"
+	enrollpolicy "github.com/mattrax/Mattrax/mdm/windows/protocol/enroll_policy"
+	enrollprovision "github.com/mattrax/Mattrax/mdm/windows/protocol/enroll_provision"
 )
 
 // Init initialises the Windows MDM components
 func Init(server mattrax.Server, r *mux.Router) error {
-	r.Path("/EnrollmentServer/Discovery.svc").Methods("GET").HandlerFunc(protocol.Discover(server))
-	r.Path("/EnrollmentServer/Discovery.svc").Methods("POST").HandlerFunc(protocol.Discovery(server))
-	r.Path("/EnrollmentServer/Policy.svc").Methods("POST").HandlerFunc(protocol.Policy(server))
-	r.Path("/EnrollmentServer/Enrollment.svc").Methods("POST").HandlerFunc(protocol.Enrollment(server))
+	r.Path("/EnrollmentServer/Discovery.svc").Methods("GET").HandlerFunc(verifyUserAgent("ENROLLClient", enrolldiscovery.GETHandler(server)))
+	r.Path("/EnrollmentServer/Discovery.svc").Methods("POST").HandlerFunc(verifyUserAgent("ENROLLClient", verifySoapRequest(enrolldiscovery.Handler(server))))
+	r.Path("/EnrollmentServer/Policy.svc").Methods("POST").HandlerFunc(verifyUserAgent("ENROLLClient", verifySoapRequest(enrollpolicy.Handler(server))))
+	r.Path("/EnrollmentServer/Enrollment.svc").Methods("POST").HandlerFunc(verifyUserAgent("ENROLLClient", verifySoapRequest(enrollprovision.Handler(server))))
 
-	// TODO: Configurable Internal + Allow Custom External URL
+	// TODO: Cleanup below + move to own package + Configurable Internal ones + Allow Custom External URL
 	r.Path("/EnrollmentServer/Authenticate").Methods("GET").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `<html>
 		<head>

@@ -1,9 +1,10 @@
 package types
 
 import (
-	"errors"
 	"net/url"
 	"regexp"
+
+	"github.com/pkg/errors"
 )
 
 // AuthPolicy is the method Windows uses to authentication the client

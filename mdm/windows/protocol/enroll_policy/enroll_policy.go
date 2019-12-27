@@ -1,4 +1,4 @@
-package protocol
+package enrollpolicy
 
 import (
 	"log"
@@ -6,125 +6,113 @@ import (
 	"strconv"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
-	wtypes "github.com/mattrax/Mattrax/mdm/windows/types"
+	"github.com/mattrax/Mattrax/mdm/windows/protocol/generic"
+	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
+	"github.com/pkg/errors"
 )
 
-func Policy(server mattrax.Server) http.HandlerFunc {
+func Handler(server mattrax.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Verify client user-agent
-		if r.Header.Get("User-Agent") != "ENROLLClient" {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
 		// Decode request from client
-		var cmd wtypes.MdeGetPoliciesRequest
+		var cmd Request
 		if err := xml.NewDecoder(r.Body).Decode(&cmd); err != nil {
 			log.Println(err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		// Verify request structure
-		if err := cmd.VerifyStructure(); err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusBadRequest)
+			w.WriteHeader(http.StatusBadRequest) // TODO: Correct Spec way of doing this??
 			return
 		}
 
 		// Verify request
-		if err := cmd.VerifyContext(server.Config, server.UserService); err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusBadRequest)
-			// TODO: Return error that user can understand
+		if err := cmd.Verify(server.Config, server.UserService); err != nil {
+			log.Println(errors.Wrap(err, "invalid MdePoliciesRequest:"))
+			w.WriteHeader(http.StatusBadRequest) // TODO: Correct Spec way of doing this??
 			return
 		}
 
 		// TODO: Use the Request Body to work out if changes have happened for PolciiesNotChanged. What is requestFilter???
 		// TODO: This response is hardcoded. Automatically generate from CertService + Settings
 
-		res := wtypes.MdePolicyResponseEnvelope{
+		res := ResponseEnvelope{
 			NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
 			NamespaceA: "http://www.w3.org/2005/08/addressing",
 			NamespaceU: "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd",
-			HeaderAction: wtypes.MustUnderstand{
+			HeaderAction: soap.MustUnderstand{
 				MustUnderstand: "1",
 				Value:          "http://schemas.microsoft.com/windows/pki/2009/01/enrollmentpolicy/IPolicy/GetPoliciesResponse",
 			},
-			// HeaderActivityID: wtypes.GenerateActivityID(),
+			// HeaderActivityID: GenerateActivityID(),
 			HeaderRelatesTo: cmd.Header.MessageID,
-			Body: wtypes.MdePolicyResponseBody{
+			Body: ResponseBody{
 				NamespaceXSI: "http://www.w3.org/2001/XMLSchema-instance",
 				NamespaceXSD: "http://www.w3.org/2001/XMLSchema",
-				PoliciesResponse: wtypes.MdePoliciesResponse{
-					PolicyID:           wtypes.GenerateID(), // TODO: Does this have to stay constant????
-					PolicyFriendlyName: "Mattrax Identity",  // TODO: Does it show
-					NextUpdateHours:    12,                  // TODO: After 12 hours does it request this same endpoint like Apple?????????
-					PoliciesNotChanged: false,               // TODO: Track this. False means policies have changed since last updateHour
-					Policies: []wtypes.MdePolicy{
-						wtypes.MdePolicy{
+				PoliciesResponse: Response{
+					PolicyID:           generic.GenerateID(), // TODO: Does this have to stay constant????
+					PolicyFriendlyName: "Mattrax Identity",   // TODO: Does it show
+					NextUpdateHours:    12,                   // TODO: After 12 hours does it request this same endpoint like Apple?????????
+					PoliciesNotChanged: false,                // TODO: Track this. False means policies have changed since last updateHour
+					Policies: []MdePolicy{
+						MdePolicy{
 							OIDReference: 0,
-							CAs: wtypes.MdeCACollection{
+							CAs: MdeCACollection{
 								Nil: true,
 							},
-							Attributes: wtypes.MdeAttributes{
+							Attributes: MdeAttributes{
 								CommonName:   "Mattrax Identity2", // TODO: Does it show
 								PolicySchema: 3,
-								CertificateValidity: wtypes.MdeAttributesCertificateValidity{
+								CertificateValidity: MdeAttributesCertificateValidity{
 									// TODO: What is good for these values. Also how does renewal work??
 									ValidityPeriodSeconds: 1209600,
 									RenewalPeriodSeconds:  172800,
 								},
-								EnrollmentPermission: wtypes.MdeEnrollmentPermission{
+								EnrollmentPermission: MdeEnrollmentPermission{
 									Enroll:     true,  // TODO: Try false as rejection
 									AutoEnroll: false, // TODO: See what is changes
 								},
-								PrivateKeyAttributes: wtypes.MdePrivateKeyAttributes{
+								PrivateKeyAttributes: MdePrivateKeyAttributes{
 									MinimalKeyLength: 2048, // TODO: Get from CertService
-									KeySpec: wtypes.MdeKeySpec{
+									KeySpec: MdeKeySpec{
 										Nil: true,
 									},
-									KeyUsageProperty: wtypes.MdeKeyUsageProperty{
+									KeyUsageProperty: MdeKeyUsageProperty{
 										Nil: true,
 									},
-									Permissions: wtypes.MdePermissions{
+									Permissions: MdePermissions{
 										Nil: true,
 									},
-									AlgorithmOIDReference: wtypes.MdeAlgorithmOIDReference{
+									AlgorithmOIDReference: MdeAlgorithmOIDReference{
 										Nil: true,
 									},
-									CryptoProviders: wtypes.MdeCryptoProviders{
+									CryptoProviders: MdeCryptoProviders{
 										Nil: true,
 									},
 								},
-								Revision: wtypes.MdeRevision{
+								Revision: MdeRevision{
 									MajorRevision: 101, // TODO: Change and see what happens. Version control inside Mattrax???
 									MinorRevision: 0,   // TODO: Change and see what happens.
 								},
-								SupersededPolicies: wtypes.MdeSupersededPolicies{
+								SupersededPolicies: MdeSupersededPolicies{
 									Nil: true,
 								},
-								PrivateKeyFlags: wtypes.MdePrivateKeyFlags{
+								PrivateKeyFlags: MdePrivateKeyFlags{
 									Nil: true,
 								},
-								SubjectNameFlags: wtypes.MdeSubjectNameFlags{
+								SubjectNameFlags: MdeSubjectNameFlags{
 									Nil: true,
 								},
-								EnrollmentFlags: wtypes.MdeEnrollmentFlags{
+								EnrollmentFlags: MdeEnrollmentFlags{
 									Nil: true,
 								},
-								GeneralFlags: wtypes.MdeGeneralFlags{
+								GeneralFlags: MdeGeneralFlags{
 									Nil: true,
 								},
 								HashAlgorithmOIDReference: 0, // TODO: What dis do?
-								RARequirements: wtypes.MdeRARequirements{
+								RARequirements: MdeRARequirements{
 									Nil: true,
 								},
-								KeyArchivalAttributes: wtypes.MdeKeyArchivalAttributes{
+								KeyArchivalAttributes: MdeKeyArchivalAttributes{
 									Nil: true,
 								},
-								Extensions: wtypes.MdeExtensions{
+								Extensions: MdeExtensions{
 									Nil: true,
 								},
 							},
