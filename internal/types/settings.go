@@ -1,65 +1,45 @@
 package types
 
 import (
-	"net/url"
+	"errors"
 	"regexp"
 
-	"github.com/pkg/errors"
+	wsettings "github.com/mattrax/Mattrax/mdm/windows/settings"
 )
 
-// AuthPolicy is the method Windows uses to authentication the client
-type AuthPolicy int
-
-const (
-	// AuthPolicyOnPremise is the OnPremise Windows AuthPolicy
-	AuthPolicyOnPremise AuthPolicy = iota
-	// AuthPolicyFederated is the Federated Windows AuthPolicy
-	AuthPolicyFederated
-	// AuthPolicyCertificate is the Certificate Windows AuthPolicy
-	AuthPolicyCertificate
-)
-
-// WindowsSettings contains Windows MDM specific settings
-// TODO: Move to /mdm/windows/ folder
-type WindowsSettings struct {
-	AuthPolicy          AuthPolicy `graphql:",optional"`
-	FederationPortalURL string     `graphql:"federationPortalUrl,optional"` // The URL to handle Federated authentication when its set as the AuthPolicy
-}
-
-// Settings contains the global settings for your Mattrax server
+// Settings holds the dynamic server config
+// This can be changed via the API at runtime.
 type Settings struct {
-	TenantName     string          `graphql:",optional"`
-	ManagedDomains []string        `graphql:",optional"`
-	Windows        WindowsSettings `graphql:",optional"`
+	TenantName        string             `graphql:",optional"`
+	ManagedDomains    []string           `graphql:",optional"`
+	EnrollmentEnabled bool               `graphql:",optional"`
+	Windows           wsettings.Settings `graphql:",optional"`
 }
 
-// tenantName is a regex used to verify a tenant name is valid
-var tenantName = regexp.MustCompile(`^[a-zA-Z0-9- '"]+$`)
+// Regex's are used to verify the users input
+var tenantNameRegex = regexp.MustCompile(`^[a-zA-Z0-9- '"]+$`)
 
+// IsDNSNameRegex is used to verify if a string is a DNS Name (Domain Name)
+var IsDNSNameRegex = regexp.MustCompile(`^([a-zA-Z0-9_]{1}[a-zA-Z0-9_-]{0,62}){1}(\.[a-zA-Z0-9_]{1}[a-zA-Z0-9_-]{0,62})*[\._]?$`)
+
+// Verify checks that the structs fields are valid
 func (settings Settings) Verify() error {
-	if settings.TenantName != "" && !tenantName.MatchString(settings.TenantName) {
+	if settings.TenantName != "" && !tenantNameRegex.MatchString(settings.TenantName) {
 		return errors.New("invalid settings: invalid TenantName '" + settings.TenantName + "'")
 	}
 
-	// TODO: Verify ManagedDomains
-
-	if settings.Windows.AuthPolicy > 3 {
-		return errors.New("invalid settings: invalid AuthPolicy")
-	}
-
-	if settings.Windows.FederationPortalURL != "" {
-		if federationPortalURL, err := url.ParseRequestURI(settings.Windows.FederationPortalURL); err != nil {
-			return errors.New("invalid settings: invalid FederationPortalURL '" + settings.Windows.FederationPortalURL + "'")
-		} else if federationPortalURL.Scheme != "https" {
-			return errors.New("invalid settings: invalid FederationPortalURL scheme '" + federationPortalURL.Scheme + "', It must be 'https'")
+	for _, domain := range settings.ManagedDomains {
+		if !IsDNSNameRegex.MatchString(domain) {
+			return errors.New("invalid settings: invalid ManagedDomain '" + domain + "'")
 		}
 	}
 
-	return nil
+	err := settings.Windows.Verify()
+	return err
 }
 
-// SettingsService contains the implemented functionality for managing settings
-type SettingsService interface {
-	Get() (Settings, error)
-	Update(settings Settings) error
+// SettingsStore is a storage mechanise capable of permanently storing settings
+type SettingsStore interface {
+	Retrieve() (Settings, error)
+	Save(settings Settings) error
 }

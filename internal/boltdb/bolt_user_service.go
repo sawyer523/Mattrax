@@ -3,7 +3,6 @@ package boltdb
 import (
 	"bytes"
 	"encoding/gob"
-	"fmt"
 
 	"github.com/boltdb/bolt"
 	"github.com/mattrax/Mattrax/internal/types"
@@ -33,11 +32,11 @@ func (us UserService) GetAll() ([]types.User, error) {
 			var user types.User
 			err := gob.NewDecoder(bytes.NewBuffer(userRaw)).Decode(&user)
 			if err != nil {
-				return errors.Wrap(err, "error in UserService.GetAll: problem to decoding the user struct")
+				return errors.Wrap(err, "error problem to decoding the user struct")
 			}
 
 			// Strip password for security
-			user.Password = []byte{}
+			user.Password = ""
 
 			users = append(users, user)
 		}
@@ -54,13 +53,12 @@ func (us UserService) getUser(email string) (types.User, error) {
 	err := us.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(usersBucket)
 		if bucket == nil {
-			return errors.New("error in UserService.getUser: users bucket does not exist")
+			return errors.New("error users bucket does not exist")
 		}
 
 		userRaw := bucket.Get([]byte(email))
 		if userRaw == nil {
-			fmt.Println("NULL")
-			return nil // TODO: Custom Exported Error
+			return types.ErrUserNotFound
 		}
 
 		err := gob.NewDecoder(bytes.NewBuffer(userRaw)).Decode(&user)
@@ -76,7 +74,7 @@ func (us UserService) Get(email string) (types.User, error) {
 	user, err := us.getUser(email)
 
 	// Strip password for security
-	user.Password = []byte{}
+	user.Password = ""
 
 	return user, err
 }
@@ -86,7 +84,7 @@ func (us UserService) CreateOrEdit(email string, user types.User) error {
 	// Encode User
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(user); err != nil {
-		return errors.Wrap(err, "error in UserService.CreateOrEdit: problem to encoding user struct")
+		return errors.Wrap(err, "error problem to encoding user struct")
 	}
 	userRaw := buf.Bytes()
 
@@ -94,7 +92,7 @@ func (us UserService) CreateOrEdit(email string, user types.User) error {
 	err := us.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(usersBucket)
 		if bucket == nil {
-			return errors.New("error in UserService.CreateOrEdit: users bucket does not exist")
+			return errors.New("error users bucket does not exist")
 		}
 
 		err := bucket.Put([]byte(email), userRaw)
@@ -113,7 +111,7 @@ func (us UserService) VerifyLogin(email string, password string) (bool, error) {
 	}
 
 	// Compare password against hash
-	err = bcrypt.CompareHashAndPassword(user.Password, []byte(password))
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
 	if err == nil {
 		return true, nil
 	} else if err == bcrypt.ErrMismatchedHashAndPassword {

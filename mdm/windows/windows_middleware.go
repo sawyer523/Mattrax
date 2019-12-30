@@ -5,12 +5,11 @@ import (
 	"net/http"
 )
 
-func verifyUserAgent(userAgent string, next http.HandlerFunc) http.HandlerFunc {
+func defaultHeaders(userAgent string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("User-Agent") != userAgent {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "-1")
 
 		next(w, r)
 	}
@@ -19,6 +18,7 @@ func verifyUserAgent(userAgent string, next http.HandlerFunc) http.HandlerFunc {
 func verifySoapRequest(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Verify Content-Type
+		// TODO: Does Intune do the same thing or not????
 		if r.Header.Get("Content-type") != "application/soap+xml; charset=utf-8" {
 			log.Println("error: Invalid Content-Type '" + r.Header.Get("Content-type") + "'")
 			w.WriteHeader(http.StatusBadRequest)

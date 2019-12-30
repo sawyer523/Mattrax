@@ -3,7 +3,6 @@ package boltdb
 import (
 	"bytes"
 	"encoding/gob"
-	"fmt"
 
 	"github.com/boltdb/bolt"
 	"github.com/mattrax/Mattrax/internal/types"
@@ -50,13 +49,12 @@ func (ps PolicyService) Get(uuid types.PolicyUUID) (types.Policy, error) {
 	err := ps.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(policiesBucket)
 		if bucket == nil {
-			return errors.New("error in PolicyService.Get: policies bucket does not exist")
+			return errors.New("error policies bucket does not exist")
 		}
 
 		policyRaw := bucket.Get(uuid)
 		if policyRaw == nil {
-			fmt.Println("NULL")
-			return nil // TODO: Cpstom Exported Error
+			return types.ErrPolicyNotFound
 		}
 
 		err := gob.NewDecoder(bytes.NewBuffer(policyRaw)).Decode(&policy)
@@ -69,18 +67,16 @@ func (ps PolicyService) Get(uuid types.PolicyUUID) (types.Policy, error) {
 
 // CreateOrEdit creates or edits an existing policy if one exists
 func (ps PolicyService) CreateOrEdit(uuid types.PolicyUUID, policy types.Policy) error {
-	// Encode policy
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(policy); err != nil {
-		return errors.Wrap(err, "error in PolicyService.CreateOrEdit: problem to encoding policy struct")
+		return errors.Wrap(err, "error problem to encoding policy struct")
 	}
 	policyRaw := buf.Bytes()
 
-	// Store to DB
 	err := ps.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(policiesBucket)
 		if bucket == nil {
-			return errors.New("error in PolicyService.CreateOrEdit: policies bucket does not exist")
+			return errors.New("error policies bucket does not exist")
 		}
 
 		err := bucket.Put(uuid, policyRaw)
@@ -88,12 +84,6 @@ func (ps PolicyService) CreateOrEdit(uuid types.PolicyUUID, policy types.Policy)
 	})
 
 	return err
-}
-
-// GenerateUUID returns a new PolicyUUID
-func (ps PolicyService) GenerateUUID() (types.PolicyUUID, error) {
-	// TODO: Make Do Stuffz
-	return types.PolicyUUID([]byte{}), nil
 }
 
 // NewPolicyService creates and initialises a new PolicyService from a DB connection

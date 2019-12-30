@@ -8,19 +8,23 @@ import (
 	"github.com/samsarahq/thunder/graphql/schemabuilder"
 )
 
-// InitAPI initialises the GraphQL API
-func InitAPI(server mattrax.Server, r *mux.Router) {
-	// Build Schema
+// Initialise creates the GraphQL API and attaches its HTTP handler
+func Initialise(server *mattrax.Server, r *mux.Router) error {
+	// Create Schema
 	builder := schemabuilder.NewSchema()
-	user(server, builder)
-	settings(server, builder)
 
-	// Compile Schema
+	// Construct Schema Endpoints
+	User(server, builder)
+	Settings(server, builder)
+
+	// Compile schema
 	schema := builder.MustBuild()
 	if server.Config.DevelopmentMode {
 		introspection.AddIntrospectionToSchema(schema)
 	}
 
-	// Serve GraphQL HTTP Endpoint
+	// Mount handler
 	r.Handle("/query", graphql.HTTPHandler(schema)).Methods("POST")
+
+	return nil
 }

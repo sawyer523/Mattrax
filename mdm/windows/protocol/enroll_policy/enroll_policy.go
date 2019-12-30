@@ -12,7 +12,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func Handler(server mattrax.Server) http.HandlerFunc {
+func Handler(server *mattrax.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Decode request from client
 		var cmd Request
@@ -127,6 +127,30 @@ func Handler(server mattrax.Server) http.HandlerFunc {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
+			/* TEMP */
+			// response = []byte(`<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing"><s:Body><s:Fault><s:Code><s:Value>s:Sender</s:Value><s:Subcode><s:Value xmlns:a="http://schemas.microsoft.com/net/2005/12/windowscommunicationfoundation/dispatcher">a:InternalServiceFault</s:Value></s:Subcode></s:Code><s:Reason><s:Text xml:lang="en-US">InvalidMessage</s:Text></s:Reason><s:Detail><DeviceEnrollmentServiceError xmlns="http://schemas.microsoft.com/windows/pki/2009/01/enrollment"><ErrorType>EnrollmentServer</ErrorType><Message>EnrollmentInternalServiceError</Message><TraceId>efec7f6f-7d54-4430-b56c-aeb41685d601</TraceId></DeviceEnrollmentServiceError></s:Detail></s:Fault></s:Body></s:Envelope>`)
+			// w.WriteHeader(http.StatusInternalServerError)
+			// 			response = []byte(`<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+			// 	<s:Header>
+			// 		<a:Action s:mustunderstand="1">http://schemas.microsoft.com/windows/pki/2009/01/enrollmentpolicy/IPolicy/GetPoliciesResponse</a:Action>
+			// 		<ActivityID xmlns="http://schemas.microsoft.com/2004/09/servicemodel/diagnostics">` + generic.GenerateID() + `</ActivityID>
+			// 		<a:RelatesTo>` + cmd.Header.Action + `</a:RelatesTo>
+			// 	</s:Header>
+			// 	<s:Body>
+			// 		<s:Fault>
+			// 			<s:Code>
+			// 				<s:Value>s:receiver</s:value>
+			// 				<s:Subcode>
+			// 					<s:Value>s:Authorization</s:Value>
+			// 				</s:Subcode>
+			// 			</s:Code>
+			// 			<s:Reason>
+			// 				<s:Text xml:lang="en-US">This User is not authorized to enroll</s:text>
+			// 			</s:Reason>
+			// 		</s:Fault>
+			// 	</s:Body>
+			// </s:Envelope>`)
+			/* END TEMP */
 			w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
 			w.Header().Set("Content-Length", strconv.Itoa(len(response)))
 			w.Write(response)

@@ -11,21 +11,22 @@ import (
 	"strings"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
+	"github.com/mattrax/Mattrax/mdm/windows/protocol/wstep"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
 	"github.com/pkg/errors"
 )
 
-func Handler(server mattrax.Server) http.HandlerFunc {
+func Handler(server *mattrax.Server) http.HandlerFunc {
 	managementServerURL := (&url.URL{
 		Scheme: "https",
-		Host:   server.Config.PrimaryDomain,
+		Host:   server.Config.Domain,
 		Path:   "/ManagementServer/MDM.svc",
 	}).String()
 
 	managementServerListURL := (&url.URL{
 		Scheme: "https",
-		Host:   server.Config.PrimaryDomain,
+		Host:   server.Config.Domain,
 		Path:   "/ManagementServer/ServerList.svc",
 	}).String()
 
@@ -51,7 +52,7 @@ func Handler(server mattrax.Server) http.HandlerFunc {
 		// }()
 
 		// Sign client CSR
-		signedClientCert, clientCert, err := server.CertificateService.SignWSTEPRequest(cmd.Body.BinarySecurityToken.Value)
+		signedClientCert, clientCert, err := wstep.SignRequest(server.Certificates, cmd.Body.BinarySecurityToken.Value)
 		if err != nil {
 			panic(err) // TODO
 		}
@@ -61,20 +62,9 @@ func Handler(server mattrax.Server) http.HandlerFunc {
 		signedClientCertFingerprint := strings.ToUpper(fmt.Sprintf("%x", h.Sum(nil))) // TODO: Cleanup
 
 		// Prepare root identity cert details
-		identityCertificateRaw, _, err := server.CertificateService.GetIdentityRaw()
-		if err != nil {
-			panic(err) // TODO
-		}
-
 		h2 := sha1.New()
-		h2.Write(identityCertificateRaw)
+		h2.Write(server.Certificates.IdentityCertRaw)
 		identityCertFingerprint := strings.ToUpper(fmt.Sprintf("%x", h2.Sum(nil))) // TODO: Cleanup
-
-		// Get MDM settings
-		settings, err := server.SettingsService.Get()
-		if err != nil {
-			panic(err) // TODO
-		}
 
 		// Create provisioning profile
 		resProvisioningProfile := WapProvisioningDoc{
@@ -94,7 +84,7 @@ func Handler(server mattrax.Server) http.HandlerFunc {
 											Params: []WapParameter{
 												WapParameter{
 													Name:  "EncodedCertificate",
-													Value: base64.StdEncoding.EncodeToString(identityCertificateRaw),
+													Value: base64.StdEncoding.EncodeToString(server.Certificates.IdentityCertRaw),
 												},
 											},
 										},
@@ -153,7 +143,7 @@ func Handler(server mattrax.Server) http.HandlerFunc {
 						},
 						WapParameter{
 							Name:  "NAME",
-							Value: settings.TenantName,
+							Value: server.Settings.TenantName,
 						},
 						WapParameter{
 							Name:  "SSPHyperlink",
@@ -404,6 +394,38 @@ func Handler(server mattrax.Server) http.HandlerFunc {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
+			/* TEMP */
+			// response = []byte(`<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing"><s:Header><a:Action s:mustunderstand="1">http://schemas.microsoft.com/windows/pki/2009/01/enrollment/rstrc/wstep</a:Action><ActivityID xmlns="http://schemas.microsoft.com/2004/09/servicemodel/diagnostics">` + generic.GenerateID() + `</ActivityID><a:RelatesTo>` + cmd.Header.Action + `</a:RelatesTo></s:Header><s:Body><s:Fault><s:Code><s:Value>s:receiver</s:value><s:Subcode><s:Value>s:Authorization</s:Value></s:Subcode></s:Code><s:Reason><s:Text xml:lang="en-US">This User is not authorized to enroll</s:text></s:Reason></s:Fault></s:Body></s:Envelope>`)
+			// response = []byte(`<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
+			// 	<s:Header>
+			// 		<a:Action s:mustunderstand="1">http://schemas.microsoft.com/windows/pki/2009/01/enrollment/IWindowsDeviceEnrollmentService/RequestSecurityTokenWindowsDeviceEnrollmentServiceErrorFault</a:Action>
+			// 		<ActivityID xmlns="http://schemas.microsoft.com/2004/09/servicemodel/diagnostics">` + generic.GenerateID() + `</ActivityID>
+			// 		<a:RelatesTo>` + cmd.Header.Action + `</a:RelatesTo>
+			// 	</s:Header>
+			// 	<s:Body>
+			// 	<s:fault>
+			// 	<s:code>
+			// 		<s:value>s:receiver</s:value>
+			// 		<s:subcode>
+			// 			<s:value>s:authorization</s:value>
+			// 		</s:subcode>
+			// 	</s:code>
+			// 	<s:reason>
+			// 		<s:text xml:lang="en-us">device cap reached</s:text>
+			// 	</s:reason>
+			// 	<s:detail>
+			// 		<deviceenrollmentserviceerror xmlns="http://schemas.microsoft.com/windows/pki/2009/01/enrollment">
+			// 			<errortype>devicecapreached</errortype>
+			// 			<message>device cap reached</message>
+			// 			<traceid>2493ee37-beeb-4cb9-833c-cadde9067645</traceid>
+			// 		</deviceenrollmentserviceerror>
+			// 	</s:detail>
+			// </s:fault>
+
+			// 	</s:Body>
+			// </s:Envelope>`)
+			/* END TEMP */
+
 			w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
 			w.Header().Set("Content-Length", strconv.Itoa(len(response)))
 			w.Write(response)

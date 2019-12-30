@@ -59,9 +59,6 @@ func (header Header) VerifyStructure(action string, verifyWSSESecurity bool) err
 
 			if header.WSSESecurity.Password == "" {
 				return errors.New("invalid empty password")
-			} else if !types.ValidPassword.MatchString(header.WSSESecurity.Password) {
-				// Note: the incorrect password is not displayed for what should be obvious reasons
-				return errors.New("invalid password")
 			}
 		} else {
 			return errors.New("no supported client authentication details received")
@@ -74,11 +71,14 @@ func (header Header) VerifyStructure(action string, verifyWSSESecurity bool) err
 func (header Header) VerifyContext(config mattrax.Config) error {
 	// Verify valid To address
 	if toAddrRaw, err := url.Parse(header.To); err != nil {
+		_ = toAddrRaw // TEMP
 		// This should NEVER be called because the url is verified in VerifyStructure
 		return errors.New("invalid To '" + header.To + "'")
-	} else if !(strings.ToLower(toAddrRaw.Hostname()) == strings.ToLower(config.PrimaryDomain) || strings.ToLower(toAddrRaw.Hostname()) == strings.ToLower(config.WindowsDiscoveryDomain)) {
-		return errors.New("this requested server ('" + strings.ToLower(toAddrRaw.Hostname()) + "') isn't this server ('" + config.WindowsDiscoveryDomain + "' or '" + config.PrimaryDomain + "')")
 	}
+
+	/* TOOD: Fix for new Settings:      else if !(strings.ToLower(toAddrRaw.Hostname()) == strings.ToLower(config.Domain) || strings.ToLower(toAddrRaw.Hostname()) == strings.ToLower(config.WindowsDiscoveryDomain)) {
+		return errors.New("this requested server ('" + strings.ToLower(toAddrRaw.Hostname()) + "') isn't this server ('" + config.WindowsDiscoveryDomain + "' or '" + config.PrimaryDomain + "')")
+	} */
 
 	return nil
 }

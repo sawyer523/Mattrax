@@ -12,11 +12,11 @@ import (
 )
 
 // Init initialises the Windows MDM components
-func Init(server mattrax.Server, r *mux.Router) error {
-	r.Path("/EnrollmentServer/Discovery.svc").Methods("GET").HandlerFunc(verifyUserAgent("ENROLLClient", enrolldiscovery.GETHandler(server)))
-	r.Path("/EnrollmentServer/Discovery.svc").Methods("POST").HandlerFunc(verifyUserAgent("ENROLLClient", verifySoapRequest(enrolldiscovery.Handler(server))))
-	r.Path("/EnrollmentServer/Policy.svc").Methods("POST").HandlerFunc(verifyUserAgent("ENROLLClient", verifySoapRequest(enrollpolicy.Handler(server))))
-	r.Path("/EnrollmentServer/Enrollment.svc").Methods("POST").HandlerFunc(verifyUserAgent("ENROLLClient", verifySoapRequest(enrollprovision.Handler(server))))
+func Init(server *mattrax.Server, r *mux.Router) error {
+	r.Path("/EnrollmentServer/Discovery.svc").Methods("GET").HandlerFunc(defaultHeaders("ENROLLClient", enrolldiscovery.GETHandler()))
+	r.Path("/EnrollmentServer/Discovery.svc").Methods("POST").HandlerFunc(defaultHeaders("ENROLLClient", verifySoapRequest(enrolldiscovery.Handler(server))))
+	r.Path("/EnrollmentServer/Policy.svc").Methods("POST").HandlerFunc(defaultHeaders("ENROLLClient", verifySoapRequest(enrollpolicy.Handler(server))))
+	r.Path("/EnrollmentServer/Enrollment.svc").Methods("POST").HandlerFunc(defaultHeaders("ENROLLClient", verifySoapRequest(enrollprovision.Handler(server))))
 
 	// TODO: Cleanup below + move to own package + Configurable Internal ones + Allow Custom External URL
 	r.Path("/EnrollmentServer/Authenticate").Methods("GET").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
