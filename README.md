@@ -1,3 +1,4 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/mattrax/Mattrax)](https://goreportcard.com/report/github.com/mattrax/Mattrax)
 # Mattrax
 
 Mattrax is an open source device management system. It is designed to make device management easy through its web interface and use of built-in MDM protocol to make a native experience. Platform-specific MDM features are abstracted into cross-platform alternatives to make it easier for admins to maintain devices.
