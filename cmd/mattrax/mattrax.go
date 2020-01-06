@@ -107,10 +107,14 @@ func main() {
 		return
 	}
 
+	// Create gracefull shutdown channel
+	done := make(chan os.Signal, 1)
+
 	// Start the HTTP server
 	go func() {
 		if err := httpSrv.ListenAndServeTLS(config.CertFile, config.KeyFile); err != nil && err != http.ErrServerClosed {
 			log.Error().Int("port", config.Port).Str("certfile", config.CertFile).Str("keyfile", config.KeyFile).Err(err).Msg("Error with the webserver!")
+			done <- syscall.Signal(-1)
 		}
 	}()
 
@@ -121,16 +125,17 @@ func main() {
 	log.Info().Str("domain", config.Domain).Int("port", config.Port).Msg("Initialised Mattrax MDM Server!")
 
 	// Upon shutdown request gracefully close the HTTP server
-	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-	<-done
+	sig := <-done
 
 	timeout := 15 * time.Second
 	if config.DevelopmentMode {
 		timeout = 2 * time.Second
 	}
 
-	log.Info().Msg("Please wait while the server is gracefully shutdown. It will timeout after " + timeout.String() + " seconds if unable to complete.")
+	if sig.String() != "signal -1" {
+		log.Info().Msg("Please wait while the server is gracefully shutdown. It will timeout after " + timeout.String() + " seconds if unable to complete.")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	err := httpSrv.Shutdown(ctx)
