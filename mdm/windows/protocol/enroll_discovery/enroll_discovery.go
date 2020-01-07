@@ -1,26 +1,39 @@
 package enrolldiscovery
 
 import (
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
+	"github.com/mattrax/Mattrax/internal/types"
 	generic "github.com/mattrax/Mattrax/mdm/windows/protocol/generic"
 	wsettings "github.com/mattrax/Mattrax/mdm/windows/settings"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
-	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 )
 
+/* Note:
+- This handler was modelled after the Intune MDM discovery endpoint
+- SOAP Fault's and other noted things are different
+*/
+
+// GETHandler handles the HTTP GET request for discovery.
+// The handler returns a HTTP status 200 so the device can determine if an enrollment server exists
+// It MUST be mounted at the path "/EnrollmentServer/Discovery.svc"
 func GETHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 }
 
+// Handler handles the HTTP POST request for discovery.
+// The handler parses the device details and responds with the location of the enrollment endpoints and the authentication policy required
+// It MUST be mounted at the path "/EnrollmentServer/Discovery.svc"
 func Handler(server *mattrax.Server) http.HandlerFunc {
+	const maxRequestBodySize = 5000
+
 	enrollmentPolicyServiceURL := (&url.URL{
 		Scheme: "https",
 		Host:   server.Config.Domain,
@@ -40,55 +53,73 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 	}).String()
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		var res interface{}
+		if r.ContentLength > maxRequestBodySize {
+			fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body too large to process")
+			fault.Response(w)
+			return
+		}
 
-		// Decode request from client
 		var cmd Request
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 		if err := xml.NewDecoder(r.Body).Decode(&cmd); err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusBadRequest)
+			log.Debug().Str("type", "error").Str("remote-addr", r.RemoteAddr).Err(err).Msg("error: discovery request: failed to parse client request body")
+			fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body couldn't be parsed")
+			fault.Response(w)
 			return
 		}
 
-		if err := cmd.Verify(server.Config, server.Settings); err != nil {
-			log.Println(errors.Wrap(err, "invalid MdeDiscoveryRequest:"))
-			w.WriteHeader(http.StatusBadRequest)
+		if cmd.Header.Action != "http://schemas.microsoft.com/windows/management/2012/01/enrollment/IDiscoveryService/Discover" {
+			fault := soap.NewBasicFault("s:Sender", "a:ActionMismatch", "client request body is invalid")
+			fault.Response(w)
 			return
 		}
 
-		// res = generic.NewGenericSoapFault("a:InternalServiceFault", "Failed to process the request due to an internal error. Mattrax MDM FTW!!!")
+		if url, err := url.ParseRequestURI(cmd.Header.To); err != nil || url.Scheme != "https" {
+			fault := soap.NewEnrollmentFault("s:Sender", "a:EndpointUnavailable", "invalid To address", "EnrollmentServer", "EnrollmentInternalServiceError", "")
+			fault.Response(w)
+			return
+		}
 
-		// Create response
+		if cmd.Body.EmailAddress == "" || !types.ValidEmail.MatchString(cmd.Body.EmailAddress) {
+			fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body missing or invalid email address")
+			fault.Response(w)
+			return
+		}
+
+		// Note: Intune doesn't verify this but I though it would prevent issues after enrollment if not supported.
+		if cmd.Body.RequestVersion != "4.0" {
+			fault := soap.NewEnrollmentFault("s:Sender", "a:InternalServiceFault", "the discovery request version "+cmd.Body.RequestVersion+" is not supported", "DeviceNotSupported", "unsupported discovery request version", "")
+			fault.Response(w)
+			return
+		}
+
+		if cmd.Body.DeviceType != "CIMClient_Windows" {
+			fault := soap.NewEnrollmentFault("s:Sender", "a:InternalServiceFault", "device type "+cmd.Body.DeviceType+" is not supported", "DeviceNotSupported", "unsupported device type", "")
+			fault.Response(w)
+			return
+		}
+
 		var authPolicy string
-		var authenticationServiceUrl string
-		if server.Settings.Windows.AuthPolicy == wsettings.AuthPolicyOnPremise {
-			if !cmd.IsAuthPolicySupport(wsettings.AuthPolicyOnPremise) {
-				log.Println(errors.New("error DiscoveryPOST: device doesn't support OnPremise AuthPolicy but is required by server"))
-				w.WriteHeader(http.StatusConflict)
-				return
-			}
+		var authenticationServiceURL string
+		if server.Settings.Windows.DeploymentType == wsettings.DeploymentStandalone {
 			authPolicy = "OnPremise"
-			authenticationServiceUrl = ""
-		} else if server.Settings.Windows.AuthPolicy == wsettings.AuthPolicyFederated {
-			if !cmd.IsAuthPolicySupport(wsettings.AuthPolicyFederated) {
-				log.Println(errors.New("error DiscoveryPOST: device doesn't support Federated AuthPolicy but is required by server"))
-				w.WriteHeader(http.StatusConflict)
-				return
-			}
+		} else if server.Settings.Windows.DeploymentType == wsettings.DeploymentAzureAD {
 			authPolicy = "Federated"
-			if server.Settings.Windows.FederationPortalURL == "" {
-				authenticationServiceUrl = internalFederationServiceURL
 
-			} else {
-				authenticationServiceUrl = server.Settings.Windows.FederationPortalURL
+			authenticationServiceURL = internalFederationServiceURL
+			if server.Settings.Windows.FederationPortalURL != "" {
+				authenticationServiceURL = server.Settings.Windows.FederationPortalURL
 			}
-		} else {
-			log.Println(errors.New("error DiscoveryPOST: invalid AuthPolicy '" + string(server.Settings.Windows.AuthPolicy) + "'"))
-			w.WriteHeader(http.StatusInternalServerError)
+		}
+
+		// Note: Intune disregards what the device supports and returns the AuthPolicy it desires
+		if !cmd.Body.AuthPolicies.IsAuthPolicySupported(authPolicy) {
+			fault := soap.NewEnrollmentFault("s:Sender", "a:InternalServiceFault", authPolicy+" auth policy is not supported by your device by required for enrollment", "DeviceNotSupported", "unsupported auth policy", "")
+			fault.Response(w)
 			return
 		}
 
-		res = ResponseEnvelope{
+		res := Response{
 			NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
 			NamespaceA: "http://www.w3.org/2005/08/addressing",
 			HeaderAction: soap.MustUnderstand{
@@ -100,27 +131,30 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 			Body: ResponseBody{
 				NamespaceXSI: "http://www.w3.org/2001/XMLSchema-instance",
 				NamespaceXSD: "http://www.w3.org/2001/XMLSchema",
-				DiscoverResponse: Response{
+				DiscoverResponse: DiscoverResponse{
 					AuthPolicy:                 authPolicy,
 					EnrollmentVersion:          cmd.Body.RequestVersion,
 					EnrollmentPolicyServiceURL: enrollmentPolicyServiceURL,
 					EnrollmentServiceURL:       enrollmentServiceURL,
-					AuthenticationServiceUrl:   authenticationServiceUrl,
+					AuthenticationServiceURL:   authenticationServiceURL,
 				},
 			},
 		}
 
 		// Marshal and send the response to client
 		if response, err := xml.Marshal(res); err != nil {
-			log.Println(err) // TODO: Error Handle
-			w.WriteHeader(http.StatusInternalServerError)
+			_, err := w.Write([]byte("HTTP 500: Internal Service Fault"))
+			if err != nil {
+				log.Error().Str("email", cmd.Body.EmailAddress).Str("device-type", cmd.Body.DeviceType).Err(err).Msg("error: discovery response: failed to send error response after xml marshaling failed")
+			}
+			return
 		} else {
 			w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
 			w.Header().Set("Content-Length", strconv.Itoa(len(response)))
-			if _, ok := res.(generic.SoapFaultEnvelop); ok {
-				w.WriteHeader(http.StatusInternalServerError)
+			_, err = w.Write(response)
+			if err != nil {
+				log.Error().Str("email", cmd.Body.EmailAddress).Str("device-type", cmd.Body.DeviceType).Err(err).Msg("error: discovery response: failed to send response body to device")
 			}
-			w.Write(response)
 		}
 	}
 }

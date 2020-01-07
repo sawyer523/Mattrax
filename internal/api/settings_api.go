@@ -15,11 +15,10 @@ func Settings(server *mattrax.Server, builder *schemabuilder.Schema) {
 	settingsObject := builder.Object("Settings", types.Settings{})
 	settingsObject.Description = "The Dynamic Settings For the Mattrax Server."
 
-	var enumField wsettings.AuthPolicy
-	builder.Enum(enumField, map[string]wsettings.AuthPolicy{
-		"OnPremise":   wsettings.AuthPolicyOnPremise,
-		"Federated":   wsettings.AuthPolicyFederated,
-		"Certificate": wsettings.AuthPolicyCertificate,
+	var enumField wsettings.DeploymentType
+	builder.Enum(enumField, map[string]wsettings.DeploymentType{
+		"Standalone": wsettings.DeploymentStandalone,
+		"AzureAD":    wsettings.DeploymentAzureAD,
 	})
 
 	query := builder.Query()
