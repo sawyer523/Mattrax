@@ -10,7 +10,11 @@ import (
 // Settings holds the dynamic server config
 // This can be changed via the API at runtime.
 type Settings struct {
-	TenantName        string             `graphql:",optional"`
+	TenantName           string `graphql:",optional"`
+	TenantSupportEmail   string `graphql:",optional"`
+	TenantSupportPhone   string `graphql:",optional"`
+	TenantSupportWebsite string `graphql:",optional"`
+
 	ManagedDomains    []string           `graphql:",optional"`
 	EnrollmentEnabled bool               `graphql:",optional"`
 	Windows           wsettings.Settings `graphql:",optional"`

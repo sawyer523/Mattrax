@@ -48,3 +48,12 @@ func (cmd Request) Verify(config mattrax.Config) error {
 
 	return nil
 }
+
+func (cmd Request) GetContextItem(name string) string {
+	for _, contextItem := range cmd.Body.AdditionalContext.ContextItems {
+		if contextItem.Name == name {
+			return contextItem.Value
+		}
+	}
+	return ""
+}

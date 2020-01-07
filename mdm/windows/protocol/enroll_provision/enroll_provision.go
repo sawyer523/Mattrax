@@ -24,12 +24,6 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 		Path:   "/ManagementServer/MDM.svc",
 	}).String()
 
-	managementServerListURL := (&url.URL{
-		Scheme: "https",
-		Host:   server.Config.Domain,
-		Path:   "/ManagementServer/ServerList.svc",
-	}).String()
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Decode request from client
 		var cmd Request
@@ -52,7 +46,12 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 		// }()
 
 		// Sign client CSR
-		signedClientCert, clientCert, err := wstep.SignRequest(server.Certificates, cmd.Body.BinarySecurityToken.Value)
+		signedCertCommonName := "oscar@otbeaumont.me"         // TODO: Get User principal name
+		if cmd.GetContextItem("EnrollmentType") == "Device" { // TODO: Possibly error if no EnrollmentType??
+			signedCertCommonName = cmd.GetContextItem("DeviceID") // TODO: Possibly error if no DeviceID??
+		}
+
+		signedClientCert, clientCert, err := wstep.SignRequest(server.Certificates, cmd.Body.BinarySecurityToken.Value, signedCertCommonName)
 		if err != nil {
 			panic(err) // TODO
 		}
@@ -66,11 +65,52 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 		h2.Write(server.Certificates.IdentityCertRaw)
 		identityCertFingerprint := strings.ToUpper(fmt.Sprintf("%x", h2.Sum(nil))) // TODO: Cleanup
 
+		// Determain Certstore
+		certStore := "User"
+		if cmd.GetContextItem("EnrollmentType") == "Device" { // TODO: Possibly error no EnrollmentType??
+			certStore = "System"
+		}
+
+		_ = clientCert // TEMP
+
+		DMCLientProviderParameters := []WapParameter{}
+
+		if server.Settings.TenantSupportPhone != "" {
+			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
+				Name:     "HelpPhoneNumber",
+				Value:    server.Settings.TenantSupportPhone,
+				DataType: "string",
+			})
+		}
+
+		if server.Settings.TenantSupportWebsite != "" {
+			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
+				Name:     "HelpWebsite",
+				Value:    server.Settings.TenantSupportWebsite,
+				DataType: "string",
+			})
+		} else {
+			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
+				Name:     "HelpWebsite",
+				Value:    "https://mattrax.otbeaumont.me",
+				DataType: "string",
+			})
+		}
+
+		if server.Settings.TenantSupportEmail != "" {
+			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
+				Name:     "HelpEmailAddress",
+				Value:    server.Settings.TenantSupportEmail,
+				DataType: "string",
+			})
+		}
+
 		// Create provisioning profile
 		resProvisioningProfile := WapProvisioningDoc{
 			Version: "1.1",
 			Characteristic: []WapCharacteristic{
 				WapCharacteristic{
+					// Spec: https://docs.microsoft.com/en-us/windows/client-management/mdm/certificatestore-csp
 					Type: "CertificateStore",
 					Characteristics: []WapCharacteristic{
 						WapCharacteristic{
@@ -96,7 +136,7 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 							Type: "My",
 							Characteristics: []WapCharacteristic{
 								WapCharacteristic{
-									Type: "User",
+									Type: certStore,
 									Characteristics: []WapCharacteristic{
 										WapCharacteristic{
 											Type: signedClientCertFingerprint,
@@ -107,22 +147,9 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 												},
 											},
 										},
-										WapCharacteristic{
-											Type: "PrivateKeyContainer",
-											Params: []WapParameter{
-												WapParameter{
-													Name:  "KeySpec",
-													Value: "2",
-												},
-												WapParameter{
-													Name:  "ContainerName",
-													Value: "ConfigMgrEnrollment",
-												},
-												WapParameter{
-													Name:  "ProviderType",
-													Value: "1",
-												},
-											},
+										WapCharacteristic{ // TODO: ?
+											Type:   "PrivateKeyContainer",
+											Params: []WapParameter{},
 										},
 									},
 								},
@@ -131,6 +158,7 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 					},
 				},
 				WapCharacteristic{
+					// Spec: https://docs.microsoft.com/en-us/windows/client-management/mdm/w7-application-csp
 					Type: "APPLICATION",
 					Params: []WapParameter{
 						WapParameter{
@@ -139,59 +167,52 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 						},
 						WapParameter{
 							Name:  "PROVIDER-ID",
-							Value: "Mattrax MDM Server",
-						},
-						WapParameter{
-							Name:  "NAME",
-							Value: server.Settings.TenantName,
-						},
-						WapParameter{
-							Name:  "SSPHyperlink",
-							Value: "http://go.microsoft.com/fwlink/?LinkId=255310", // Enterprise Management App
+							Value: "MattraxMDM",
+							// DataType: "sting", //TODO: On all
 						},
 						WapParameter{
 							Name:  "ADDR",
 							Value: managementServerURL,
 						},
 						WapParameter{
-							Name:  "ServerList",
-							Value: managementServerListURL,
-						},
-						WapParameter{
-							Name:  "ROLE",
-							Value: "4294967295", // ? Possible Values
-						},
-						/* Discriminator to set whether the client should do Certificate Revocation List checking. */
-						WapParameter{
-							Name:  "CRLCheck",
-							Value: "0",
-						},
-						WapParameter{
-							Name:  "CONNRETRYFREQ",
-							Value: "6",
-						},
-						WapParameter{
-							Name:  "INITIALBACKOFFTIME",
-							Value: "30000",
-						},
-						WapParameter{
-							Name:  "MAXBACKOFFTIME",
-							Value: "120000",
+							Name:  "NAME",
+							Value: server.Settings.TenantName,
 						},
 						WapParameter{
 							Name: "BACKCOMPATRETRYDISABLED",
 						},
 						WapParameter{
-							Name:  "DEFAULTENCODING",
-							Value: "application/vnd.syncml.dm+wbxml",
+							Name:  "CONNRETRYFREQ",
+							Value: "3",
 						},
-						// TODO: This is causing issues
+						WapParameter{
+							Name:  "DEFAULTENCODING",
+							Value: "application/vnd.syncml.dm+xml",
+						},
+						WapParameter{
+							Name:  "INITIALBACKOFFTIME",
+							Value: "16000", // Note: In milliseconds
+						},
+						WapParameter{
+							Name:  "MAXBACKOFFTIME",
+							Value: "86400000", // Note: In milliseconds
+						},
+						WapParameter{
+							Name:  "PROTOVER",
+							Value: "1.2",
+						},
+						WapParameter{
+							Name:  "ROLE",
+							Value: "4294967295", // TODO
+						},
 						// WapParameter{
 						// 	Name:  "SSLCLIENTCERTSEARCHCRITERIA",
-						// 	Value: "Subject=CN=%3d" + clientCert.Subject.CommonName + "&amp;Stores=MY%5CUser", // TODO: Correct Value
+						// 	Value: "Subject=" + strings.ReplaceAll(url.PathEscape(clientCert.Subject.CommonName), "=", "%3D") + "&Stores=My%5C" + certStore,
+						// 	// Value: "Subject=" + strings.ReplaceAll(url.PathEscape(clientCert.Subject.String()), "=", "%3D") + "&amp;Stores=My%5C" + certStore,
 						// },
 					},
 					Characteristics: []WapCharacteristic{
+						// TODO: APPAUTH
 						WapCharacteristic{
 							Type: "APPAUTH",
 							Params: []WapParameter{
@@ -241,107 +262,134 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 					},
 				},
 				WapCharacteristic{
-					Type: "Registry",
+					Type: "DMClient",
 					Characteristics: []WapCharacteristic{
 						WapCharacteristic{
-							Type: `HKLM\Security\MachineEnrollment`,
-							Params: []WapParameter{
-								WapParameter{
-									Name:     "RenewalPeriod",
-									Value:    "363",
-									DataType: "integer",
-								},
-							},
-						},
-						WapCharacteristic{
-							Type: `HKLM\Security\MachineEnrollment\OmaDmRetry`,
-							Params: []WapParameter{
-								WapParameter{
-									Name:     "NumRetries",
-									Value:    "8",
-									DataType: "integer",
-								},
-								WapParameter{
-									Name:     "RetryInterval",
-									Value:    "15",
-									DataType: "integer",
-								},
-								WapParameter{
-									Name:     "AuxNumRetries",
-									Value:    "5",
-									DataType: "integer",
-								},
-								WapParameter{
-									Name:     "AuxRetryInterval",
-									Value:    "3",
-									DataType: "integer",
-								},
-								WapParameter{
-									Name:     "Aux2NumRetries",
-									Value:    "0",
-									DataType: "integer",
-								},
-								WapParameter{
-									Name:     "Aux2RetryInterval",
-									Value:    "480",
-									DataType: "integer",
-								},
-							},
-						},
-					},
-				},
-				WapCharacteristic{
-					Type: "Registry",
-					Characteristics: []WapCharacteristic{
-						WapCharacteristic{
-							Type: `HKLM\Software\Windows\CurrentVersion\MDM\MachineEnrollment`,
-							Params: []WapParameter{
-								WapParameter{
-									Name:     "DeviceName",
-									Value:    "TODO",
-									DataType: "string",
-								},
-							},
-						},
-					},
-				},
-				WapCharacteristic{
-					Type: "Registry",
-					Characteristics: []WapCharacteristic{
-						WapCharacteristic{
-							Type: `HKLM\SOFTWARE\Windows\CurrentVersion\MDM\MachineEnrollment`,
-							Params: []WapParameter{
-								// Thumbprint of root certificate.
-								WapParameter{
-									Name:     "SslServerRootCertHash",
-									Value:    identityCertFingerprint,
-									DataType: "string",
-								},
-								// Store for device certificate.
-								WapParameter{
-									Name:     "SslClientCertStore",
-									Value:    "MY%5CSystem",
-									DataType: "string",
-								},
-								WapParameter{
-									Name:     "SslClientCertSubjectName",
-									Value:    "Subject=CN=%3d" + clientCert.Subject.CommonName, //"CN%3de4c6b893-07a7-4b24-878e-9d8602c3d289",
-									DataType: "string",
-								},
-								WapParameter{
-									Name:     "SslClientCertHash",
-									Value:    signedClientCertFingerprint,
-									DataType: "string",
-								},
-							},
-						},
-						WapCharacteristic{
-							Type: `HKLM\Security\Provisioning\OMADM\Accounts\037B1F0D3842015588E753CDE76EC724`,
-							Params: []WapParameter{
-								WapParameter{
-									Name:     "SslClientCertReference",
-									Value:    "My;System;" + signedClientCertFingerprint,
-									DataType: "string",
+							Type: "Provider",
+							Characteristics: []WapCharacteristic{
+								WapCharacteristic{
+									Type: "MattraxMDM",
+									Params: append([]WapParameter{
+										WapParameter{
+											Name:     "EntDeviceName",
+											Value:    "Demo Persons Device", // TODO: Device Name from Context
+											DataType: "string",
+										},
+										WapParameter{
+											Name:     "EntDMID",
+											Value:    "aaaaaaa", // TODO: Mattrax DB Device ID
+											DataType: "string",
+										},
+										// WapParameter{
+										// 	Name:     "SignedEntDMID",
+										// 	Value:    "", // TODO
+										// 	DataType: "string",
+										// },
+										// WapParameter{
+										// 	Name:     "CertRenewTimeStamp",
+										// 	Value:    "", // TODO
+										// 	DataType: "",
+										// },
+										// WapParameter{
+										// 	Name:     "UPN",
+										// 	Value:    "", // TODO: Email from user
+										// 	DataType: "string",
+										// },
+										// WapParameter{
+										// 	Name:     "RequireMessageSigning",
+										// 	Value:    "true",
+										// 	DataType: "boolean",
+										// },
+										// WapParameter{
+										// 	Name:     "SyncApplicationVersion",
+										// 	Value:    "2.0", // TODO: Is this correct 2.0
+										// 	DataType: "string",
+										// },
+										// WapParameter{
+										// 	Name:     "AADResourceID",
+										// 	Value:    "", // TODO: Fill value
+										// 	DataType: "string",
+										// },
+										WapParameter{
+											Name:     "NumberOfDaysAfterLostContactToUnenroll",
+											Value:    "730", // 2 years
+											DataType: "integer",
+										},
+										// Note Mattrax currently doesn't support: ExchangeID, PublisherDeviceID, CommercialID
+									}, DMCLientProviderParameters...),
+									Characteristics: []WapCharacteristic{
+										WapCharacteristic{
+											Type: "Poll",
+											Params: []WapParameter{
+												WapParameter{
+													Name:     "IntervalForFirstSetOfRetries",
+													Value:    "15",
+													DataType: "integer",
+												},
+												WapParameter{
+													Name:     "NumberOfFirstRetries",
+													Value:    "5",
+													DataType: "integer",
+												},
+												WapParameter{
+													Name:     "IntervalForSecondSetOfRetries",
+													Value:    "60",
+													DataType: "integer",
+												},
+												WapParameter{
+													Name:     "NumberOfSecondRetries",
+													Value:    "10",
+													DataType: "integer",
+												},
+												WapParameter{
+													Name:     "IntervalForRemainingScheduledRetries",
+													Value:    "1440",
+													DataType: "integer",
+												},
+												WapParameter{
+													Name:     "NumberOfRemainingScheduledRetries",
+													Value:    "0",
+													DataType: "integer",
+												},
+												WapParameter{
+													Name:     "PollOnLogin",
+													Value:    "true",
+													DataType: "boolean",
+												},
+												WapParameter{
+													Name:     "AllUsersPollOnFirstLogin",
+													Value:    "true",
+													DataType: "boolean",
+												},
+											},
+										},
+										WapCharacteristic{
+											Type: "CustomEnrollmentCompletePage",
+											Params: []WapParameter{
+												WapParameter{
+													Name:     "Title",
+													Value:    "Enrollment Complete",
+													DataType: "string",
+												},
+												WapParameter{
+													Name:     "BodyText",
+													Value:    "Your device is now being managed by '" + server.Settings.TenantName + "'. Please contact your IT administrators for support if you have any problems.",
+													DataType: "string",
+												},
+											},
+										},
+										// FUTURE: FirstSyncStatus like Apple DEP
+										// WapCharacteristic{
+										// 	Type: "EnhancedAppLayerSecurity",
+										// 	Params: []WapParameter{
+										// 		WapParameter{
+										// 			Name:     "",
+										// 			Value:    "",
+										// 			DataType: "string",
+										// 		},
+										// 	},
+										// },
+									},
 								},
 							},
 						},
@@ -394,38 +442,6 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 			log.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
-			/* TEMP */
-			// response = []byte(`<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing"><s:Header><a:Action s:mustunderstand="1">http://schemas.microsoft.com/windows/pki/2009/01/enrollment/rstrc/wstep</a:Action><ActivityID xmlns="http://schemas.microsoft.com/2004/09/servicemodel/diagnostics">` + generic.GenerateID() + `</ActivityID><a:RelatesTo>` + cmd.Header.Action + `</a:RelatesTo></s:Header><s:Body><s:Fault><s:Code><s:Value>s:receiver</s:value><s:Subcode><s:Value>s:Authorization</s:Value></s:Subcode></s:Code><s:Reason><s:Text xml:lang="en-US">This User is not authorized to enroll</s:text></s:Reason></s:Fault></s:Body></s:Envelope>`)
-			// response = []byte(`<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://www.w3.org/2005/08/addressing">
-			// 	<s:Header>
-			// 		<a:Action s:mustunderstand="1">http://schemas.microsoft.com/windows/pki/2009/01/enrollment/IWindowsDeviceEnrollmentService/RequestSecurityTokenWindowsDeviceEnrollmentServiceErrorFault</a:Action>
-			// 		<ActivityID xmlns="http://schemas.microsoft.com/2004/09/servicemodel/diagnostics">` + generic.GenerateID() + `</ActivityID>
-			// 		<a:RelatesTo>` + cmd.Header.Action + `</a:RelatesTo>
-			// 	</s:Header>
-			// 	<s:Body>
-			// 	<s:fault>
-			// 	<s:code>
-			// 		<s:value>s:receiver</s:value>
-			// 		<s:subcode>
-			// 			<s:value>s:authorization</s:value>
-			// 		</s:subcode>
-			// 	</s:code>
-			// 	<s:reason>
-			// 		<s:text xml:lang="en-us">device cap reached</s:text>
-			// 	</s:reason>
-			// 	<s:detail>
-			// 		<deviceenrollmentserviceerror xmlns="http://schemas.microsoft.com/windows/pki/2009/01/enrollment">
-			// 			<errortype>devicecapreached</errortype>
-			// 			<message>device cap reached</message>
-			// 			<traceid>2493ee37-beeb-4cb9-833c-cadde9067645</traceid>
-			// 		</deviceenrollmentserviceerror>
-			// 	</s:detail>
-			// </s:fault>
-
-			// 	</s:Body>
-			// </s:Envelope>`)
-			/* END TEMP */
-
 			w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
 			w.Header().Set("Content-Length", strconv.Itoa(len(response)))
 			w.Write(response)

@@ -3,6 +3,7 @@ package wstep
 import (
 	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"math/big"
 	mathrand "math/rand"
@@ -12,7 +13,7 @@ import (
 	"github.com/pkg/errors"
 )
 
-func SignRequest(cert types.Certificates, binarySecurityToken string) ([]byte, *x509.Certificate, error) {
+func SignRequest(cert types.Certificates, binarySecurityToken string, CommonName string) ([]byte, *x509.Certificate, error) {
 	// Decode Base64
 	csrRaw, err := base64.StdEncoding.DecodeString(binarySecurityToken)
 	if err != nil {
@@ -38,11 +39,13 @@ func SignRequest(cert types.Certificates, binarySecurityToken string) ([]byte, *
 		PublicKey:          csr.PublicKey,
 		SerialNumber:       big.NewInt(2), // TODO: What does it do, should it be increasing?
 		Issuer:             cert.IdentityCert.Issuer,
-		Subject:            csr.Subject,
-		NotBefore:          NotBefore1,
-		NotAfter:           NotBefore1.Add(365 * 24 * time.Hour),           // TODO: Configurable + Working renewal
-		KeyUsage:           x509.KeyUsageDigitalSignature,                  // TODO: What does it do
-		ExtKeyUsage:        []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, // TODO: What does it do
+		Subject: pkix.Name{
+			CommonName: CommonName,
+		},
+		NotBefore:   NotBefore1,
+		NotAfter:    NotBefore1.Add(365 * 24 * time.Hour),           // TODO: Configurable + Working renewal
+		KeyUsage:    x509.KeyUsageDigitalSignature,                  // TODO: What does it do
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, // TODO: What does it do
 	}
 
 	clientCRTRaw, err := x509.CreateCertificate(rand.Reader, clientCertificate, cert.IdentityCert, csr.PublicKey, cert.IdentityKey)
