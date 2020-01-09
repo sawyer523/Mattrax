@@ -2,6 +2,9 @@ package mattrax
 
 import (
 	"github.com/alexflint/go-arg"
+	"github.com/mattrax/Mattrax/internal/certificates"
+	"github.com/mattrax/Mattrax/internal/devices"
+	"github.com/mattrax/Mattrax/internal/settings"
 	"github.com/mattrax/Mattrax/internal/types"
 )
 
@@ -11,17 +14,15 @@ var Version string = "0.0.0-development"
 
 // Server holds the global server state
 type Server struct {
-	Version      string
-	Config       Config
-	Settings     types.Settings
-	Certificates types.Certificates
+	Version      string // The Mattrax server version
+	Config       Config // Config holds static varibles defined through Command Line flags. It is read only!
+	Settings     *settings.Service
+	Certificates *certificates.Service
+	Devices      devices.Service
 
+	// TODO Cleanup below
 	UserService   types.UserService
 	PolicyService types.PolicyService
-
-	// Internally used by above items
-	SettingsStore    types.SettingsStore
-	CertificateStore types.CertificateStore
 }
 
 // Config holds the static server config
@@ -29,7 +30,7 @@ type Server struct {
 type Config struct {
 	Port            int    `arg:"-p" help:"the port for the HTTPS webserver to listen on" placeholder:"443" default:"443"`
 	Domain          string `arg:"-d" help:"the domain name the server is accessible on" placeholder:"mdm.example.com"`
-	DBPath          string `help:"the path where the file database is stored" placeholder:"/var/mattrax.db" default:"/var/mattrax.db"`
+	DBPath          string `help:"the path where the file database is stored" placeholder:"/var/mattrax.db" default:"/var/mattrax.db" graphql:"DBPath"`
 	CertFile        string `arg:"--cert" help:"the path to the https certificate for the HTTPS webserver" placeholder:"/dont-put-your-cert-file-here.pem"`
 	KeyFile         string `arg:"--key" help:"the path to the https certificate private key for the HTTPS webserver" placeholder:"/dont-put-your-key-file-here.pem"`
 	DevelopmentMode bool   `arg:"--dev" help:"enables verbose output and loosens security measures to aid developers" default:"false"`

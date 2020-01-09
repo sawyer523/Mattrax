@@ -6,9 +6,9 @@ import (
 	"strconv"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
+	generic "github.com/mattrax/Mattrax/internal/generic"
+	"github.com/mattrax/Mattrax/internal/settings"
 	"github.com/mattrax/Mattrax/internal/types"
-	generic "github.com/mattrax/Mattrax/mdm/windows/protocol/generic"
-	wsettings "github.com/mattrax/Mattrax/mdm/windows/settings"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
 	"github.com/rs/zerolog/log"
@@ -22,7 +22,7 @@ import (
 // GETHandler handles the HTTP GET request for discovery.
 // The handler returns a HTTP status 200 so the device can determine if an enrollment server exists
 // It MUST be mounted at the path "/EnrollmentServer/Discovery.svc"
-func GETHandler() http.HandlerFunc {
+func GETHandler(server *mattrax.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
@@ -55,6 +55,12 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > maxRequestBodySize {
 			fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body too large to process")
+			fault.Response(w)
+			return
+		}
+
+		if server.Settings.Get().ServerState == settings.StateInstallation {
+			fault := soap.NewBasicFault("s:Sender", "a:EndpointUnavailable", "the server is currently not ready to accept enrollments")
 			fault.Response(w)
 			return
 		}
@@ -99,17 +105,12 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 			return
 		}
 
-		var authPolicy string
-		var authenticationServiceURL string
-		if server.Settings.Windows.DeploymentType == wsettings.DeploymentStandalone {
-			authPolicy = "OnPremise"
-		} else if server.Settings.Windows.DeploymentType == wsettings.DeploymentAzureAD {
-			authPolicy = "Federated"
+		serverSettings := server.Settings.Get()
 
-			authenticationServiceURL = internalFederationServiceURL
-			if server.Settings.Windows.FederationPortalURL != "" {
-				authenticationServiceURL = server.Settings.Windows.FederationPortalURL
-			}
+		var authPolicy = "Federated"
+		var authenticationServiceURL = internalFederationServiceURL
+		if serverSettings.Windows.CustomFederationPortal != "" {
+			authenticationServiceURL = serverSettings.Windows.CustomFederationPortal
 		}
 
 		// Note: Intune disregards what the device supports and returns the AuthPolicy it desires
@@ -122,12 +123,14 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 		res := Response{
 			NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
 			NamespaceA: "http://www.w3.org/2005/08/addressing",
-			HeaderAction: soap.MustUnderstand{
-				MustUnderstand: "1",
-				Value:          "http://schemas.microsoft.com/windows/management/2012/01/enrollment/IDiscoveryService/DiscoverResponse",
+			Header: soap.HeaderRes{
+				Action: soap.MustUnderstand{
+					MustUnderstand: "1",
+					Value:          "http://schemas.microsoft.com/windows/management/2012/01/enrollment/IDiscoveryService/DiscoverResponse",
+				},
+				ActivityID: generic.GenerateID(),
+				RelatesTo:  cmd.Header.MessageID,
 			},
-			HeaderActivityID: generic.GenerateID(),
-			HeaderRelatesTo:  cmd.Header.MessageID,
 			Body: ResponseBody{
 				NamespaceXSI: "http://www.w3.org/2001/XMLSchema-instance",
 				NamespaceXSD: "http://www.w3.org/2001/XMLSchema",
@@ -142,19 +145,18 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 		}
 
 		// Marshal and send the response to client
-		if response, err := xml.Marshal(res); err != nil {
-			_, err := w.Write([]byte("HTTP 500: Internal Service Fault"))
-			if err != nil {
-				log.Error().Str("email", cmd.Body.EmailAddress).Str("device-type", cmd.Body.DeviceType).Err(err).Msg("error: discovery response: failed to send error response after xml marshaling failed")
-			}
+		response, err := xml.Marshal(res)
+		if err != nil {
+			fault := soap.NewBasicFault("s:Reciever", "a:InternalServiceFault", "mattrax error: failed to generate discovery response")
+			fault.Response(w)
 			return
-		} else {
-			w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
-			w.Header().Set("Content-Length", strconv.Itoa(len(response)))
-			_, err = w.Write(response)
-			if err != nil {
-				log.Error().Str("email", cmd.Body.EmailAddress).Str("device-type", cmd.Body.DeviceType).Err(err).Msg("error: discovery response: failed to send response body to device")
-			}
+		}
+
+		w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(response)))
+		_, err = w.Write(response)
+		if err != nil {
+			log.Error().Str("email", cmd.Body.EmailAddress).Str("device-type", cmd.Body.DeviceType).Err(err).Msg("error: failed to send discovery response body")
 		}
 	}
 }

@@ -1,411 +1,130 @@
 package enrollprovision
 
 import (
-	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
+	"time"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
-	"github.com/mattrax/Mattrax/mdm/windows/protocol/wstep"
+	"github.com/mattrax/Mattrax/internal/devices"
+	"github.com/mattrax/Mattrax/internal/generic"
+	"github.com/mattrax/Mattrax/internal/settings"
+	"github.com/mattrax/Mattrax/internal/types"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
-	"github.com/pkg/errors"
+	"github.com/rs/zerolog/log"
 )
 
 func Handler(server *mattrax.Server) http.HandlerFunc {
+	const maxRequestBodySize = 5000
+
 	managementServerURL := (&url.URL{
 		Scheme: "https",
 		Host:   server.Config.Domain,
-		Path:   "/ManagementServer/MDM.svc",
+		Path:   "/ManagementServer/Manage.svc",
 	}).String()
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Decode request from client
+		if r.ContentLength > maxRequestBodySize {
+			fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body too large to process")
+			fault.Response(w)
+			return
+		}
+
+		if server.Settings.Get().ServerState != settings.StateNormal {
+			// TODO: Propper Advanced Fault
+			fault := soap.NewBasicFault("s:Sender", "a:EndpointUnavailable", "the server is currently not ready to accept enrollments")
+			fault.Response(w)
+			return
+		}
+
 		var cmd Request
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 		if err := xml.NewDecoder(r.Body).Decode(&cmd); err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusBadRequest)
+			log.Debug().Str("type", "error").Str("remote-addr", r.RemoteAddr).Err(err).Msg("error: provision request: failed to parse client request body")
+			fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body couldn't be parsed")
+			fault.Response(w)
 			return
 		}
 
-		// Verify request structure
-		if err := cmd.Verify(server.Config); err != nil {
-			log.Println(errors.Wrap(err, "invalid MdeDiscoveryRequest:"))
-			w.WriteHeader(http.StatusBadRequest)
+		if cmd.Header.Action != "http://schemas.microsoft.com/windows/pki/2009/01/enrollment/RST/wstep" {
+			fault := soap.NewBasicFault("s:Sender", "a:ActionMismatch", "client request body is invalid")
+			fault.Response(w)
 			return
 		}
 
-		// TODO: Create Device in DB
-		// defer func() {
-		// 	// TODO: Save Device assuming no error occured
-		// }()
-
-		// Sign client CSR
-		signedCertCommonName := "oscar@otbeaumont.me"         // TODO: Get User principal name
-		if cmd.GetContextItem("EnrollmentType") == "Device" { // TODO: Possibly error if no EnrollmentType??
-			signedCertCommonName = cmd.GetContextItem("DeviceID") // TODO: Possibly error if no DeviceID??
+		if url, err := url.ParseRequestURI(cmd.Header.To); err != nil || url.Scheme != "https" {
+			fault := soap.NewEnrollmentFault("s:Sender", "a:EndpointUnavailable", "invalid To address", "EnrollmentServer", "EnrollmentInternalServiceError", "")
+			fault.Response(w)
+			return
 		}
 
-		signedClientCert, clientCert, err := wstep.SignRequest(server.Certificates, cmd.Body.BinarySecurityToken.Value, signedCertCommonName)
-		if err != nil {
-			panic(err) // TODO
-		}
+		fmt.Println(cmd.Header.WSSESecurity.BinarySecurityToken) // TODO: Verify (check valid Microsoft or Mattrax token)
 
-		h := sha1.New()
-		h.Write(signedClientCert)
-		signedClientCertFingerprint := strings.ToUpper(fmt.Sprintf("%x", h.Sum(nil))) // TODO: Cleanup
+		// FINISH CHECKING INPUT: Verify CSR exists
+		// Required EnrollmentType and possibly DeviceID
 
-		// Prepare root identity cert details
-		h2 := sha1.New()
-		h2.Write(server.Certificates.IdentityCertRaw)
-		identityCertFingerprint := strings.ToUpper(fmt.Sprintf("%x", h2.Sum(nil))) // TODO: Cleanup
+		// fault := soap.NewEnrollmentFault("s:Receiver", "s:Authorization", "device cap reached", "DeviceCapReached", "device cap reached", "2493ee37-beeb-4cb9-833c-cadde9067645")
+		// fault.Response(w)
 
-		// Determain Certstore
-		certStore := "User"
-		if cmd.GetContextItem("EnrollmentType") == "Device" { // TODO: Possibly error no EnrollmentType??
-			certStore = "System"
-		}
+		// fault := soap.NewEnrollmentFault("s:Receiver", "a:InternalServiceFault", "hello world", "NotSupported", "Device Not Supported", "test")
+		// fault.Response(w)
 
-		_ = clientCert // TEMP
+		// Binary Security Token
+		// Check if device exists. Get users other devices.
+		// AAD isManaged true
 
-		DMCLientProviderParameters := []WapParameter{}
-
-		if server.Settings.TenantSupportPhone != "" {
-			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
-				Name:     "HelpPhoneNumber",
-				Value:    server.Settings.TenantSupportPhone,
-				DataType: "string",
-			})
-		}
-
-		if server.Settings.TenantSupportWebsite != "" {
-			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
-				Name:     "HelpWebsite",
-				Value:    server.Settings.TenantSupportWebsite,
-				DataType: "string",
-			})
-		} else {
-			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
-				Name:     "HelpWebsite",
-				Value:    "https://mattrax.otbeaumont.me",
-				DataType: "string",
-			})
-		}
-
-		if server.Settings.TenantSupportEmail != "" {
-			DMCLientProviderParameters = append(DMCLientProviderParameters, WapParameter{
-				Name:     "HelpEmailAddress",
-				Value:    server.Settings.TenantSupportEmail,
-				DataType: "string",
-			})
-		}
-
-		// Create provisioning profile
-		resProvisioningProfile := WapProvisioningDoc{
-			Version: "1.1",
-			Characteristic: []WapCharacteristic{
-				WapCharacteristic{
-					// Spec: https://docs.microsoft.com/en-us/windows/client-management/mdm/certificatestore-csp
-					Type: "CertificateStore",
-					Characteristics: []WapCharacteristic{
-						WapCharacteristic{
-							Type: "Root",
-							Characteristics: []WapCharacteristic{
-								WapCharacteristic{
-									Type: "System",
-									Characteristics: []WapCharacteristic{
-										WapCharacteristic{
-											Type: identityCertFingerprint,
-											Params: []WapParameter{
-												WapParameter{
-													Name:  "EncodedCertificate",
-													Value: base64.StdEncoding.EncodeToString(server.Certificates.IdentityCertRaw),
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						WapCharacteristic{
-							Type: "My",
-							Characteristics: []WapCharacteristic{
-								WapCharacteristic{
-									Type: certStore,
-									Characteristics: []WapCharacteristic{
-										WapCharacteristic{
-											Type: signedClientCertFingerprint,
-											Params: []WapParameter{
-												WapParameter{
-													Name:  "EncodedCertificate",
-													Value: base64.StdEncoding.EncodeToString(signedClientCert),
-												},
-											},
-										},
-										WapCharacteristic{ // TODO: ?
-											Type:   "PrivateKeyContainer",
-											Params: []WapParameter{},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				WapCharacteristic{
-					// Spec: https://docs.microsoft.com/en-us/windows/client-management/mdm/w7-application-csp
-					Type: "APPLICATION",
-					Params: []WapParameter{
-						WapParameter{
-							Name:  "APPID",
-							Value: "w7",
-						},
-						WapParameter{
-							Name:  "PROVIDER-ID",
-							Value: "MattraxMDM",
-							// DataType: "sting", //TODO: On all
-						},
-						WapParameter{
-							Name:  "ADDR",
-							Value: managementServerURL,
-						},
-						WapParameter{
-							Name:  "NAME",
-							Value: server.Settings.TenantName,
-						},
-						WapParameter{
-							Name: "BACKCOMPATRETRYDISABLED",
-						},
-						WapParameter{
-							Name:  "CONNRETRYFREQ",
-							Value: "3",
-						},
-						WapParameter{
-							Name:  "DEFAULTENCODING",
-							Value: "application/vnd.syncml.dm+xml",
-						},
-						WapParameter{
-							Name:  "INITIALBACKOFFTIME",
-							Value: "16000", // Note: In milliseconds
-						},
-						WapParameter{
-							Name:  "MAXBACKOFFTIME",
-							Value: "86400000", // Note: In milliseconds
-						},
-						WapParameter{
-							Name:  "PROTOVER",
-							Value: "1.2",
-						},
-						WapParameter{
-							Name:  "ROLE",
-							Value: "4294967295", // TODO
-						},
-						// WapParameter{
-						// 	Name:  "SSLCLIENTCERTSEARCHCRITERIA",
-						// 	Value: "Subject=" + strings.ReplaceAll(url.PathEscape(clientCert.Subject.CommonName), "=", "%3D") + "&Stores=My%5C" + certStore,
-						// 	// Value: "Subject=" + strings.ReplaceAll(url.PathEscape(clientCert.Subject.String()), "=", "%3D") + "&amp;Stores=My%5C" + certStore,
-						// },
-					},
-					Characteristics: []WapCharacteristic{
-						// TODO: APPAUTH
-						WapCharacteristic{
-							Type: "APPAUTH",
-							Params: []WapParameter{
-								WapParameter{
-									Name:  "AAUTHLEVEL",
-									Value: "CLIENT",
-								},
-								WapParameter{
-									Name:  "AAUTHTYPE",
-									Value: "DIGEST",
-								},
-								WapParameter{
-									Name:  "AAUTHSECRET",
-									Value: "dummy",
-								},
-								WapParameter{
-									Name:  "AAUTHDATA",
-									Value: "nonce",
-								},
-							},
-						},
-						WapCharacteristic{
-							Type: "APPAUTH",
-							Params: []WapParameter{
-								WapParameter{
-									Name:  "AAUTHLEVEL",
-									Value: "APPSRV",
-								},
-								WapParameter{
-									Name:  "AAUTHTYPE",
-									Value: "DIGEST",
-								},
-								WapParameter{
-									Name:  "AAUTHNAME",
-									Value: "dummy",
-								},
-								WapParameter{
-									Name:  "AAUTHSECRET",
-									Value: "dummy",
-								},
-								WapParameter{
-									Name:  "AAUTHDATA",
-									Value: "nonce",
-								},
-							},
-						},
-					},
-				},
-				WapCharacteristic{
-					Type: "DMClient",
-					Characteristics: []WapCharacteristic{
-						WapCharacteristic{
-							Type: "Provider",
-							Characteristics: []WapCharacteristic{
-								WapCharacteristic{
-									Type: "MattraxMDM",
-									Params: append([]WapParameter{
-										WapParameter{
-											Name:     "EntDeviceName",
-											Value:    "Demo Persons Device", // TODO: Device Name from Context
-											DataType: "string",
-										},
-										WapParameter{
-											Name:     "EntDMID",
-											Value:    "aaaaaaa", // TODO: Mattrax DB Device ID
-											DataType: "string",
-										},
-										// WapParameter{
-										// 	Name:     "SignedEntDMID",
-										// 	Value:    "", // TODO
-										// 	DataType: "string",
-										// },
-										// WapParameter{
-										// 	Name:     "CertRenewTimeStamp",
-										// 	Value:    "", // TODO
-										// 	DataType: "",
-										// },
-										// WapParameter{
-										// 	Name:     "UPN",
-										// 	Value:    "", // TODO: Email from user
-										// 	DataType: "string",
-										// },
-										// WapParameter{
-										// 	Name:     "RequireMessageSigning",
-										// 	Value:    "true",
-										// 	DataType: "boolean",
-										// },
-										// WapParameter{
-										// 	Name:     "SyncApplicationVersion",
-										// 	Value:    "2.0", // TODO: Is this correct 2.0
-										// 	DataType: "string",
-										// },
-										// WapParameter{
-										// 	Name:     "AADResourceID",
-										// 	Value:    "", // TODO: Fill value
-										// 	DataType: "string",
-										// },
-										WapParameter{
-											Name:     "NumberOfDaysAfterLostContactToUnenroll",
-											Value:    "730", // 2 years
-											DataType: "integer",
-										},
-										// Note Mattrax currently doesn't support: ExchangeID, PublisherDeviceID, CommercialID
-									}, DMCLientProviderParameters...),
-									Characteristics: []WapCharacteristic{
-										WapCharacteristic{
-											Type: "Poll",
-											Params: []WapParameter{
-												WapParameter{
-													Name:     "IntervalForFirstSetOfRetries",
-													Value:    "15",
-													DataType: "integer",
-												},
-												WapParameter{
-													Name:     "NumberOfFirstRetries",
-													Value:    "5",
-													DataType: "integer",
-												},
-												WapParameter{
-													Name:     "IntervalForSecondSetOfRetries",
-													Value:    "60",
-													DataType: "integer",
-												},
-												WapParameter{
-													Name:     "NumberOfSecondRetries",
-													Value:    "10",
-													DataType: "integer",
-												},
-												WapParameter{
-													Name:     "IntervalForRemainingScheduledRetries",
-													Value:    "1440",
-													DataType: "integer",
-												},
-												WapParameter{
-													Name:     "NumberOfRemainingScheduledRetries",
-													Value:    "0",
-													DataType: "integer",
-												},
-												WapParameter{
-													Name:     "PollOnLogin",
-													Value:    "true",
-													DataType: "boolean",
-												},
-												WapParameter{
-													Name:     "AllUsersPollOnFirstLogin",
-													Value:    "true",
-													DataType: "boolean",
-												},
-											},
-										},
-										WapCharacteristic{
-											Type: "CustomEnrollmentCompletePage",
-											Params: []WapParameter{
-												WapParameter{
-													Name:     "Title",
-													Value:    "Enrollment Complete",
-													DataType: "string",
-												},
-												WapParameter{
-													Name:     "BodyText",
-													Value:    "Your device is now being managed by '" + server.Settings.TenantName + "'. Please contact your IT administrators for support if you have any problems.",
-													DataType: "string",
-												},
-											},
-										},
-										// FUTURE: FirstSyncStatus like Apple DEP
-										// WapCharacteristic{
-										// 	Type: "EnhancedAppLayerSecurity",
-										// 	Params: []WapParameter{
-										// 		WapParameter{
-										// 			Name:     "",
-										// 			Value:    "",
-										// 			DataType: "string",
-										// 		},
-										// 	},
-										// },
-									},
-								},
-							},
-						},
-					},
-				},
+		device := devices.Device{
+			UUID:        generic.GenerateID(),
+			DisplayName: cmd.Body.GetAdditionalContextItem("DeviceName"),
+			Protocol:    devices.WindowsMDM,
+			EnrolledAt:  time.Now(),
+			EnrolledBy:  types.User{
+				// TODO: UUID
+			},
+			Hardware: devices.DeviceHardware{
+				ID:  cmd.Body.GetAdditionalContextItem("HWDevID"),
+				MAC: cmd.Body.GetAdditionalContextItems("MAC"),
+			},
+			Windows: devices.WindowsDevice{
+				DeviceID:           cmd.Body.GetAdditionalContextItem("DeviceID"),
+				DeviceType:         cmd.Body.GetAdditionalContextItem("DeviceType"),
+				EnrollmentType:     cmd.Body.GetAdditionalContextItem("EnrollmentType"),
+				OSEdition:          cmd.Body.GetAdditionalContextItem("OSEdition"),
+				OSVersion:          cmd.Body.GetAdditionalContextItem("OSVersion"),
+				ApplicationVersion: cmd.Body.GetAdditionalContextItem("ApplicationVersion"),
 			},
 		}
 
-		// Marshal provisioning profile
-		provisioningProfile, err := xml.Marshal(resProvisioningProfile)
+		faultLogger := log.With().Str("device-uuid", device.UUID).Str("device-display-name", device.DisplayName).Str("win-device-id", device.Windows.DeviceID).Logger()
+
+		// defer func() {
+		// 	// server.DeviceService
+		// }()
+
+		identityCertificate := server.Certificates.Get().Identity
+
+		clientCertificateDer, err := SignClientCertificate(server, device, cmd.Body.BinarySecurityToken.Value, identityCertificate)
 		if err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
+			// TODO
+			return
 		}
 
-		// Create response
+		fmt.Println(device)
+
+		provisioningProfile := GenerateProvisioningProfile(server, managementServerURL, identityCertificate, device, clientCertificateDer)
+
+		provisioningProfileXML, err := xml.Marshal(provisioningProfile)
+		if err != nil {
+			log.Debug().Str("type", "error").Str("remote-addr", r.RemoteAddr).Err(err).Msg("error: discovery request: failed to parse client request body")
+			fault := soap.NewBasicFault("s:Reciever", "a:InternalServiceFault", "mattrax error: failed to generate provisioning profile")
+			fault.Response(w)
+			return
+		}
+
 		res := ResponseEnvelope{
 			NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
 			NamespaceA: "http://www.w3.org/2005/08/addressing",
@@ -431,20 +150,25 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 				BinarySecurityToken: BinarySecurityToken{
 					ValueType:    "http://schemas.microsoft.com/5.0.0.0/ConfigurationManager/Enrollment/DeviceEnrollmentProvisionDoc",
 					EncodingType: "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd#base64binary",
-					Value:        base64.StdEncoding.EncodeToString(provisioningProfile),
+					Value:        base64.StdEncoding.EncodeToString(provisioningProfileXML),
 				},
 				RequestID: 0,
 			},
 		}
 
 		// Marshal and send the response to client
-		if response, err := xml.Marshal(res); err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
-			w.Header().Set("Content-Length", strconv.Itoa(len(response)))
-			w.Write(response)
+		response, err := xml.Marshal(res)
+		if err != nil {
+			fault := soap.NewBasicFault("s:Reciever", "a:InternalServiceFault", "mattrax error: failed to generate provision response")
+			fault.Response(w)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
+		w.Header().Set("Content-Length", strconv.Itoa(len(response)))
+		_, err = w.Write(response)
+		if err != nil {
+			faultLogger.Error().Err(err).Msg("error: failed to send provision response body")
 		}
 	}
 }

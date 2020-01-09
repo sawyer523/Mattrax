@@ -1,15 +1,15 @@
 package enrolldiscovery
 
 import (
-	generic "github.com/mattrax/Mattrax/mdm/windows/protocol/generic"
+	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
 )
 
 // Request contains the SOAP request Envelope
 type Request struct {
-	XMLName xml.Name       `xml:"s:Envelope"`
-	Header  generic.Header `xml:"s:Header"`
-	Body    RequestBody    `xml:"s:Body>Discover>request"`
+	XMLName xml.Name    `xml:"s:Envelope"`
+	Header  soap.Header `xml:"s:Header"`
+	Body    RequestBody `xml:"s:Body>Discover>request"`
 }
 
 // RequestBody contains the body of the SOAP Envelope

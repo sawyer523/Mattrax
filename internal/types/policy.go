@@ -1,6 +1,8 @@
 package types
 
-import "github.com/pkg/errors"
+import (
+	"github.com/pkg/errors"
+)
 
 // PolicyUUID is a unique identifier given to each policy
 type PolicyUUID []byte
@@ -14,8 +16,8 @@ type Policy struct {
 
 // PolicyPayload is a raw MDM instruction contain inside a Policy
 type PolicyPayload struct {
-	DisplayName  string
-	Instructions map[MDMProtcol][]byte // This map is between an MDMProtocol and raw payload to be sent to the device
+	DisplayName string
+	// Instructions map[MDMProtcol][]byte // This map is between an MDMProtocol and raw payload to be sent to the device
 }
 
 // ErrPolicyNotFound is the error returned if a user can't be found

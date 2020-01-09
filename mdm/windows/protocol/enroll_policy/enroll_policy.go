@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
-	"github.com/mattrax/Mattrax/mdm/windows/protocol/generic"
+	"github.com/mattrax/Mattrax/internal/generic"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
 	"github.com/pkg/errors"

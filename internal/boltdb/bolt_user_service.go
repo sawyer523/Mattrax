@@ -10,6 +10,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// TODO: Change to User Store and support AAD for Login + 2FA, etc in Service
+
 // usersBucket stores the name of the boltdb bucket the users are stored in
 var usersBucket = []byte("users")
 

@@ -5,14 +5,14 @@ import (
 	"encoding/gob"
 
 	"github.com/boltdb/bolt"
-	"github.com/mattrax/Mattrax/internal/types"
+	"github.com/mattrax/Mattrax/internal/settings"
 	"github.com/pkg/errors"
 )
 
-// settingsBucket stores the name of the boltdb bucket the settings are stored in
-var settingsBucket = []byte("settings")
+// TODO: Make smaller + Redo error messages. Log them to console.
 
-// settingsKey is the key within the database that the settings are stored to
+// Where in the DB the settings struct is stored
+var settingsBucket = []byte("settings")
 var settingsKey = []byte("settings")
 
 // SettingsStore saves and loads the servers settings
@@ -21,12 +21,12 @@ type SettingsStore struct {
 }
 
 // Retrieve gets the settings from the database
-func (st SettingsStore) Retrieve() (types.Settings, error) {
-	var settings types.Settings
-	err := st.db.View(func(tx *bolt.Tx) error {
+func (ss SettingsStore) Retrieve() (settings.Settings, error) {
+	var settings settings.Settings
+	err := ss.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(settingsBucket)
 		if bucket == nil {
-			return errors.New("error in SettingsService.Get: settings bucket does not exist")
+			return errors.New("error in SettingsStore.Retrieve: settings bucket does not exist")
 		}
 
 		settingsRaw := bucket.Get(settingsKey)
@@ -43,16 +43,16 @@ func (st SettingsStore) Retrieve() (types.Settings, error) {
 }
 
 // Save stores new settings to the database
-func (st SettingsStore) Save(settings types.Settings) error {
+func (ss SettingsStore) Save(settings settings.Settings) error {
 	// Encode Settings
 	buf := new(bytes.Buffer)
 	if err := gob.NewEncoder(buf).Encode(settings); err != nil {
-		return errors.Wrap(err, "error in SettingsService.Update: problem to encoding settings struct")
+		return errors.Wrap(err, "error in SettingsStore.Save: problem to encoding settings struct")
 	}
 	settingsRaw := buf.Bytes()
 
 	// Store to DB
-	err := st.db.Update(func(tx *bolt.Tx) error {
+	err := ss.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(settingsBucket)
 		if bucket == nil {
 			return errors.New("error in SettingsService.Update: settings bucket does not exist")
@@ -66,7 +66,7 @@ func (st SettingsStore) Save(settings types.Settings) error {
 }
 
 // NewSettingsStore creates and initialises a new SettingsService from a DB connection
-func NewSettingsStore(db *bolt.DB) (types.SettingsStore, error) {
+func NewSettingsStore(db *bolt.DB) (settings.Store, error) {
 	err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(settingsBucket)
 		return err

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
+	"github.com/mattrax/Mattrax/internal/types"
+	wsettings "github.com/mattrax/Mattrax/mdm/windows/settings"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
 )
@@ -18,7 +20,14 @@ import (
 //		- Invalid Action
 //		- Invalid To adrress + Verify allowed address's include config.Domain and settings.ManagedDomains
 
-var server = &mattrax.Server{} // TOOD: Mock fill in -> Using custom DB path
+var server = &mattrax.Server{
+	// Settings: types.Settings{
+	// 	Windows: wsettings.Settings{
+	// 		DeploymentType:      wsettings.DeploymentStandalone,
+	// 		FederationPortalURL: "",
+	// 	},
+	// },
+} // TOOD: Mock fill in -> Using custom DB path
 
 func TestDiscoveryGETResponse(t *testing.T) {
 	req, err := http.NewRequest("GET", "/EnrollServer/Discovery.svc", nil)
@@ -38,6 +47,8 @@ func TestDiscoveryGETResponse(t *testing.T) {
 }
 
 func TestDiscoveryPOSTMissingRequestBody(t *testing.T) {
+	// TODO: RequestBody
+
 	req, err := http.NewRequest("POST", "/EnrollServer/Discovery.svc", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +65,7 @@ func TestDiscoveryPOSTMissingRequestBody(t *testing.T) {
 		return
 	}
 
-	var fault soap.SoapFaultEnvelop
+	var fault soap.FaultEnvelop
 	if err := xml.NewDecoder(res.Body).Decode(&fault); err != nil {
 		t.Errorf("TestDiscoveryPOSTMissingRequestBody: failed to parse fault: got error %v", err)
 	}
@@ -64,8 +75,8 @@ func TestDiscoveryPOSTMissingRequestBody(t *testing.T) {
 	}
 
 	// Although the MDM spec allows this to be multiple possible value this is done to ensure a logical and supported value is used.
-	if fault.Subcode.Value != "s:MessageFormat" {
-		t.Errorf("TestDiscoveryPOSTMissingRequestBody: fault subcode value was incorrect: got %v want %v", fault.Subcode.Value, "s:MessageFormat")
+	if fault.Subcode != "s:MessageFormat" {
+		t.Errorf("TestDiscoveryPOSTMissingRequestBody: fault subcode value was incorrect: got %v want %v", fault.Subcode, "s:MessageFormat")
 	}
 
 	if fault.Reason.Text == "" {
@@ -91,46 +102,47 @@ func TestDiscoveryPOST(t *testing.T) {
 	}
 
 	var cmd Response
+	var cmdRes = cmd.Body.DiscoverResponse
 	if err := xml.NewDecoder(res.Body).Decode(&cmd); err != nil {
 		t.Errorf("TestDiscoveryPOST: failed to parse cmd: got error %v", err)
 	}
 
-	if cmd.AuthPolicy != "OnPremise" && cmd.AuthPolicy != "Federated" && cmd.AuthPolicy != "Certificate" {
-		t.Errorf("TestDiscoveryPOST: returned an invalid auth policy: got %v want OnPremise, Federated or Certificate", cmd.AuthPolicy)
+	if cmdRes.AuthPolicy != "OnPremise" && cmdRes.AuthPolicy != "Federated" && cmdRes.AuthPolicy != "Certificate" {
+		t.Errorf("TestDiscoveryPOST: returned an invalid auth policy: got %v want OnPremise, Federated or Certificate", cmdRes.AuthPolicy)
 		return
 	}
 
-	if cmd.EnrollmentVersion != "4.0" {
-		t.Errorf("TestDiscoveryPOST: returned unsupported enrollment version: got %v want %v", cmd.EnrollmentVersion, "4.0")
+	if cmdRes.EnrollmentVersion != "4.0" {
+		t.Errorf("TestDiscoveryPOST: returned unsupported enrollment version: got %v want %v", cmdRes.EnrollmentVersion, "4.0")
 		return
 	}
 
-	if cmd.EnrollmentPolicyServiceURL != "" {
+	if cmdRes.EnrollmentPolicyServiceURL != "" {
 		t.Errorf("TestDiscoveryPOST: failed to return an enrollment policy service url")
 		return
-	} else if url, err := url.ParseRequestURI(cmd.EnrollmentPolicyServiceURL); err != nil {
-		t.Errorf("TestDiscoveryPOST: invalid enrollment policy service url: url '%v' error %v", cmd.EnrollmentServiceURL, err)
+	} else if url, err := url.ParseRequestURI(cmdRes.EnrollmentPolicyServiceURL); err != nil {
+		t.Errorf("TestDiscoveryPOST: invalid enrollment policy service url: url '%v' error %v", cmdRes.EnrollmentServiceURL, err)
 		return
 	} else if url.Scheme != "https" {
 		t.Errorf("TestDiscoveryPOST: invalid enrollment policy service url scheme: got %v want %v", url.Scheme, "https")
 	}
 
-	if cmd.EnrollmentServiceURL != "" {
+	if cmdRes.EnrollmentServiceURL != "" {
 		t.Errorf("TestDiscoveryPOST: failed to return an enrollment service url")
 		return
-	} else if url, err := url.ParseRequestURI(cmd.EnrollmentServiceURL); err != nil {
-		t.Errorf("TestDiscoveryPOST: invalid enrollment service url: url '%v' error %v", cmd.EnrollmentServiceURL, err)
+	} else if url, err := url.ParseRequestURI(cmdRes.EnrollmentServiceURL); err != nil {
+		t.Errorf("TestDiscoveryPOST: invalid enrollment service url: url '%v' error %v", cmdRes.EnrollmentServiceURL, err)
 		return
 	} else if url.Scheme != "https" {
 		t.Errorf("TestDiscoveryPOST: invalid enrollment service url scheme: got %v want %v", url.Scheme, "https")
 	}
 
-	if cmd.AuthPolicy == "Federated" {
-		if cmd.AuthenticationServiceUrl != "" {
+	if cmdRes.AuthPolicy == "Federated" {
+		if cmdRes.AuthenticationServiceURL != "" {
 			t.Errorf("TestDiscoveryPOST: failed to return an authentication service url")
 			return
-		} else if url, err := url.ParseRequestURI(cmd.AuthenticationServiceUrl); err != nil {
-			t.Errorf("TestDiscoveryPOST: invalid authentication service url: url '%v' error %v", cmd.AuthenticationServiceUrl, err)
+		} else if url, err := url.ParseRequestURI(cmdRes.AuthenticationServiceURL); err != nil {
+			t.Errorf("TestDiscoveryPOST: invalid authentication service url: url '%v' error %v", cmdRes.AuthenticationServiceURL, err)
 			return
 		} else if url.Scheme != "https" {
 			t.Errorf("TestDiscoveryPOST: invalid authentication service url scheme: got %v want %v", url.Scheme, "https")

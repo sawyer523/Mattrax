@@ -1,15 +1,16 @@
 package boltdb
 
 import (
-	"crypto/x509/pkix"
 	"time"
 
 	"github.com/boltdb/bolt"
 	mattrax "github.com/mattrax/Mattrax/internal"
-	certificateservice "github.com/mattrax/Mattrax/internal/certificates"
-	"github.com/mattrax/Mattrax/internal/types"
+	"github.com/mattrax/Mattrax/internal/certificates"
+	"github.com/mattrax/Mattrax/internal/settings"
 	"github.com/pkg/errors"
 )
+
+// TODO: Use helpers in the package to cut down on duplicate code
 
 // FUTURE: Remove because globals are bad
 var globalDB *bolt.DB
@@ -32,29 +33,19 @@ func Initialise(server *mattrax.Server) error {
 		return err
 	}
 
-	if server.SettingsStore, err = NewSettingsStore(db); err != nil {
+	if settingsStore, err := NewSettingsStore(db); err != nil {
+		return err
+	} else if server.Settings, err = settings.NewService(settingsStore); err != nil {
 		return err
 	}
 
-	if server.Settings, err = server.SettingsStore.Retrieve(); err != nil {
+	if certificateStore, err := NewCertificateStore(db); err != nil {
+		return err
+	} else if server.Certificates, err = certificates.NewService(certificateStore); err != nil {
 		return err
 	}
 
-	identityCertConfig := types.IdentityCertificateConfig{
-		KeyLength: 4096,
-		Subject: pkix.Name{
-			// TODO: Configurable
-			Country:            []string{"US"},
-			Organization:       []string{"groob-io"},
-			OrganizationalUnit: []string{"SCEP CA"},
-		},
-	}
-
-	if server.CertificateStore, err = NewCertificateStore(db); err != nil {
-		return err
-	}
-
-	if server.Certificates, err = certificateservice.Initialise(server.CertificateStore, identityCertConfig); err != nil {
+	if server.Devices, err = NewDeviceStore(db); err != nil {
 		return err
 	}
 

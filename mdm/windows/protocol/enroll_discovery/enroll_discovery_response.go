@@ -7,13 +7,11 @@ import (
 
 // Response contains the SOAP response Envelope
 type Response struct {
-	XMLName          xml.Name            `xml:"s:Envelope"`
-	NamespaceS       string              `xml:"xmlns:s,attr"`
-	NamespaceA       string              `xml:"xmlns:a,attr"`
-	HeaderAction     soap.MustUnderstand `xml:"s:Header>a:Action"`
-	HeaderActivityID string              `xml:"s:Header>a:ActivityID"`
-	HeaderRelatesTo  string              `xml:"s:Header>a:RelatesTo"`
-	Body             ResponseBody        `xml:"s:Body"`
+	XMLName    xml.Name       `xml:"s:Envelope"`
+	NamespaceS string         `xml:"xmlns:s,attr"`
+	NamespaceA string         `xml:"xmlns:a,attr"`
+	Header     soap.HeaderRes `xml:"s:Header"`
+	Body       ResponseBody   `xml:"s:Body"`
 }
 
 // ResponseBody contains the body of the SOAP Envelope

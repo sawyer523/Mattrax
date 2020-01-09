@@ -31,10 +31,11 @@ type ResponseBody struct {
 }
 
 type ResponseEnvelope struct {
-	XMLName      xml.Name            `xml:"s:Envelope"`
-	NamespaceS   string              `xml:"xmlns:s,attr"`
-	NamespaceA   string              `xml:"xmlns:a,attr"`
-	NamespaceU   string              `xml:"xmlns:u,attr"`
+	XMLName    xml.Name `xml:"s:Envelope"`
+	NamespaceS string   `xml:"xmlns:s,attr"`
+	NamespaceA string   `xml:"xmlns:a,attr"`
+	NamespaceU string   `xml:"xmlns:u,attr"`
+	// Header     soap.HeaderRes `xml:"s:Header"`
 	HeaderAction soap.MustUnderstand `xml:"s:Header>a:Action"`
 	// HeaderActivityID string                   `xml:"s:Header>a:ActivityID"` // TODO: Is this needed
 	HeaderRelatesTo string         `xml:"s:Header>a:RelatesTo"`
