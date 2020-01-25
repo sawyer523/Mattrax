@@ -9,7 +9,7 @@ Please refer to the Github releases [here](https://github.com/mattrax/Mattrax/re
 
 ## Documentation
 
-Mattrax currently does not have any documentation due to it being in early development but that will change very soon. It is pretty simple to work out, so give it a shot.
+Please checkout the [Wiki here](https://github.com/mattrax/Mattrax/wiki) for more details about deploying and maintaining a Mattrax server.
 
 ## Contributing
 
