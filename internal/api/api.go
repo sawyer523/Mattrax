@@ -1,89 +1,79 @@
 package api
 
 import (
-	"context"
 	"crypto/x509/pkix"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"time"
+	"net/http"
 
 	"github.com/gorilla/mux"
 	mattrax "github.com/mattrax/Mattrax/internal"
-	"github.com/mattrax/Mattrax/internal/devices"
 	"github.com/mattrax/Mattrax/internal/settings"
-	"github.com/samsarahq/thunder/graphql"
-	"github.com/samsarahq/thunder/graphql/introspection"
-	"github.com/samsarahq/thunder/graphql/schemabuilder"
-	"github.com/samsarahq/thunder/reactive"
+	"gopkg.in/yaml.v2"
 )
 
-// Initialise creates the GraphQL API and attaches its HTTP handler
-func Initialise(server *mattrax.Server, r *mux.Router) error {
-	// Create Schema
-	builder := schemabuilder.NewSchema()
-
-	// Construct Schema Endpoints
-	MattraxAPI(server, builder)
-	server.Settings.MountAPI(builder)
-	server.Certificates.MountAPI(builder)
-	devices.MountAPI(server.Devices, builder)
-
-	// TODO: Move below to somewhere else
-	type finishInstallation struct {
-		Underscore bool `graphql:"_"`
-	}
-
-	mutation := builder.Mutation()
-	mutation.FieldFunc("finishInstallation", func(req finishInstallation) (finishInstallation, error) {
-		currentSettings := server.Settings.Get()
-		fmt.Println(currentSettings)
-		if currentSettings.ServerState != settings.StateInstallation {
-			return finishInstallation{false}, errors.New("failed to finish instllation: server is not in installation mode")
-		}
-
-		if currentSettings.Tenant.Name == "" {
-			return finishInstallation{false}, errors.New("Failed to finish installation: Tenant name must be set to finish enrollment")
-		}
-
-		if err := server.Certificates.GenerateIdentity(pkix.Name{
-			CommonName: currentSettings.Tenant.Name + " Identity",
-		}); err != nil {
-			return finishInstallation{false}, err
-		}
-
-		if err := server.Settings.Set(settings.Settings{
-			ServerState: settings.StateNormal,
-		}); err != nil {
-			return finishInstallation{false}, err
-		}
-
-		return finishInstallation{true}, nil
-	})
-
-	// Compile schema
-	schema := builder.MustBuild()
-	if server.Config.DevelopmentMode {
-		introspection.AddIntrospectionToSchema(schema)
-	}
-
-	// Mount handler
-	r.Handle("/query", graphql.HTTPHandler(schema)).Methods("POST")
-
-	return nil
+// Response is what is a generic HTTP response
+type Response struct {
+	Success bool
+	Msg     string `json:",omitempty"`
 }
 
-// MattraxAPI exposes values that are directly stored on the mattrax.Server to the API
-func MattraxAPI(server *mattrax.Server, builder *schemabuilder.Schema) {
-	object := builder.Object("Config", mattrax.Config{})
-	object.Description = "The static server config. This is set via command line flags and is read only."
+const maxRequestBodySize = 5000
 
-	query := builder.Query()
-	query.FieldFunc("version", func(ctx context.Context) string {
-		reactive.InvalidateAfter(ctx, 24*60*time.Second)
-		return server.Version
-	})
-	query.FieldFunc("config", func(ctx context.Context) mattrax.Config {
-		reactive.InvalidateAfter(ctx, 24*60*time.Second)
-		return server.Config
-	})
+// Initialise creates the API and attaches its HTTP handler
+func Initialise(server *mattrax.Server, r *mux.Router) error {
+	r.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, server.Version)
+	}).Methods("GET")
+
+	r.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		yaml.NewEncoder(w).Encode(server.Settings.Get())
+	}).Methods("GET")
+
+	r.HandleFunc("/api/settings", func(w http.ResponseWriter, r *http.Request) {
+		var cmd settings.Settings
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		if err := yaml.NewDecoder(r.Body).Decode(&cmd); err != nil {
+			res, _ := json.Marshal(Response{
+				Success: false,
+				Msg:     "Invalid request body",
+			})
+			w.Write(res)
+			return
+		}
+
+		if err := cmd.Verify(); err != nil {
+			res, _ := json.Marshal(Response{
+				Success: false,
+				Msg:     err.Error(),
+			})
+			w.Write(res)
+			return
+		}
+
+		previousSettings := server.Settings.Get()
+
+		server.Settings.Set(cmd)
+
+		fmt.Println(previousSettings.Tenant.Name, cmd.Tenant.Name)
+		if previousSettings.Tenant.Name != cmd.Tenant.Name {
+			if err := server.Certificates.GenerateIdentity(pkix.Name{
+				CommonName: cmd.Tenant.Name + " Identity",
+			}); err != nil {
+				res, _ := json.Marshal(Response{
+					Success: false,
+					Msg:     err.Error(),
+				})
+				w.Write(res)
+				return
+			}
+		}
+
+		res, _ := json.Marshal(Response{
+			Success: true,
+		})
+		w.Write(res)
+	}).Methods("POST")
+
+	return nil
 }

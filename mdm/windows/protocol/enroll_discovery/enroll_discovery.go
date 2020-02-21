@@ -105,13 +105,14 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 			return
 		}
 
-		serverSettings := server.Settings.Get()
+		// serverSettings := server.Settings.Get()
 
 		var authPolicy = "Federated"
 		var authenticationServiceURL = internalFederationServiceURL
-		if serverSettings.Windows.CustomFederationPortal != "" {
-			authenticationServiceURL = serverSettings.Windows.CustomFederationPortal
-		}
+		// TODO
+		// if serverSettings.Windows.CustomFederationPortal != "" {
+		// 	authenticationServiceURL = serverSettings.Windows.CustomFederationPortal
+		// }
 
 		// Note: Intune disregards what the device supports and returns the AuthPolicy it desires
 		if !cmd.Body.AuthPolicies.IsAuthPolicySupported(authPolicy) {

@@ -6,6 +6,7 @@ import (
 	"github.com/boltdb/bolt"
 	mattrax "github.com/mattrax/Mattrax/internal"
 	"github.com/mattrax/Mattrax/internal/certificates"
+	"github.com/mattrax/Mattrax/internal/datastore/boltdb"
 	"github.com/mattrax/Mattrax/internal/settings"
 	"github.com/pkg/errors"
 )
@@ -33,15 +34,16 @@ func Initialise(server *mattrax.Server) error {
 		return err
 	}
 
-	if settingsStore, err := NewSettingsStore(db); err != nil {
-		return err
-	} else if server.Settings, err = settings.NewService(settingsStore); err != nil {
+	settingStore := &boltdb.Store{
+		DB:     db,
+		Bucket: []byte("settings"),
+	}
+	settingStore.Init() // TODO: Make to create func not subfunc
+
+	if server.Settings, err = settings.NewService(settingStore); err != nil {
 		return err
 	}
-
-	if certificateStore, err := NewCertificateStore(db); err != nil {
-		return err
-	} else if server.Certificates, err = certificates.NewService(certificateStore); err != nil {
+	if server.Certificates, err = certificates.NewService(settingStore); err != nil {
 		return err
 	}
 

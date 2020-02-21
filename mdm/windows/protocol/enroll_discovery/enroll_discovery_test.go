@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
-	"github.com/mattrax/Mattrax/internal/types"
-	wsettings "github.com/mattrax/Mattrax/mdm/windows/settings"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
 )

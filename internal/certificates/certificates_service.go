@@ -14,15 +14,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mattrax/Mattrax/internal/datastore"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog/log"
 )
+
+var certificatesKey = []byte("certificates")
 
 // Service contains the code for safely (using a Mutex) getting and updating certificates.
 type Service struct {
 	certificates Certificates
 	mutex        *sync.Mutex // Mutex is used to ensures exclusive access to the certificates
-	store        Store
+	store        datastore.Store
 }
 
 // Get returns the loaded settings.
@@ -95,7 +98,7 @@ func (s *Service) GenerateIdentity(subject pkix.Name) error {
 		NotAfter:  certificate.NotAfter,
 	}
 
-	if err := s.store.Save(s.certificates); err != nil {
+	if err := s.store.Set(certificatesKey, s.certificates); err != nil {
 		s.certificates = previousCertificates
 		s.mutex.Unlock()
 		log.Error().Err(err).Msg("error saving new Mattrax identity")
@@ -108,15 +111,10 @@ func (s *Service) GenerateIdentity(subject pkix.Name) error {
 	return nil
 }
 
-// Store is a place where certificates are stored.
-type Store interface {
-	Save(Certificates) error
-	Retrieve() (Certificates, error)
-}
-
 // NewService initialises and returns a new CertificateService
-func NewService(store Store) (*Service, error) {
-	certificates, err := store.Retrieve()
+func NewService(store datastore.Store) (*Service, error) {
+	var certificates Certificates
+	err := store.Get(certificatesKey, &certificates)
 	if err != nil {
 		return nil, err
 	}

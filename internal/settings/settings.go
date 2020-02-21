@@ -2,27 +2,27 @@ package settings
 
 import (
 	"errors"
-	winsettings "github.com/mattrax/Mattrax/mdm/windows/settings"
 	"net/url"
 	"regexp"
 )
 
 // Settings contains the Mattrax's dynamic configuration.
-// These values are changed by the Tenant at runtime.
+// These values can be changed by the Tenant at runtime although it is recommended some of them never change.
 type Settings struct {
-	Tenant      TenantSettings `graphql:",optional"`
-	ServerState ServerState    `graphql:",optional"`
-	// TODO UserSource string
+	Tenant TenantSettings `yaml:"tenant"`
 
-	Windows winsettings.Settings `graphql:",optional"`
+	// BREAK
+
+	ServerState ServerState
 }
 
-// TenantSettings contains settings that are specific to the servers tenant
+// TenantSettings contains details about the server's owner
+// Some of these settings show up on the device to tell a end user where to contact for help.
 type TenantSettings struct {
-	Name           string `graphql:",optional"`
-	SupportPhone   string `graphql:",optional"`
-	SupportEmail   string `graphql:",optional"`
-	SupportWebsite string `graphql:",optional"`
+	Name           string `yaml:"name"`
+	SupportEmail   string `yaml:"support_email"`
+	SupportPhone   string `yaml:"support_phone"`
+	SupportWebsite string `yaml:"support_website"`
 }
 
 // ServerState says the state of the server
