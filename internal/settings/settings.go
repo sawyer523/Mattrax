@@ -7,35 +7,20 @@ import (
 )
 
 // Settings contains the Mattrax's dynamic configuration.
-// These values can be changed by the Tenant at runtime although it is recommended some of them never change.
+// These values can be changed at runtime although it is recommended some of them never change.
 type Settings struct {
 	Tenant TenantSettings `yaml:"tenant"`
-
-	// BREAK
-
-	ServerState ServerState
 }
 
 // TenantSettings contains details about the server's owner
 // Some of these settings show up on the device to tell a end user where to contact for help.
 type TenantSettings struct {
-	Name           string `yaml:"name"`
-	SupportEmail   string `yaml:"support_email"`
-	SupportPhone   string `yaml:"support_phone"`
-	SupportWebsite string `yaml:"support_website"`
+	Name               string `yaml:"name"`
+	SupportEmail       string `yaml:"support_email"`
+	SupportPhone       string `yaml:"support_phone"`
+	SupportWebsite     string `yaml:"support_website"`
+	EnrollmentDisabled bool   `yaml:"enrollment_disabled"`
 }
-
-// ServerState says the state of the server
-type ServerState int
-
-const (
-	// StateInstallation is the ServerState while the MDM is still being configurated upon instllation
-	StateInstallation ServerState = iota
-	// StateNormal is the ServerState for the MDM server functioning normally
-	StateNormal
-	// StateEnrollmentDisabled is the ServerState for when functioning normally but device enrollment is disabled
-	StateEnrollmentDisabled
-)
 
 // genericStringRegex is a regex used to verify a simple string
 var genericStringRegex = regexp.MustCompile(`^[a-zA-Z0-9- '"]+$`)
@@ -53,8 +38,6 @@ func (settings Settings) Verify() error {
 			return errors.New("invalid settings: tenant name contains invalid characters")
 		}
 	}
-
-	// TODO
 
 	return nil
 }

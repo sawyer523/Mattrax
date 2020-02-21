@@ -8,6 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// TODO: The developer bugs in this file should be compile time errors. If that is possible?
+
 // FaultEnvelop is the response body used to report an error to the device.
 type FaultEnvelop struct {
 	XMLName                      xml.Name                     `xml:"s:Envelope"`

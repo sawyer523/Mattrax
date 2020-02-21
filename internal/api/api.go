@@ -55,7 +55,6 @@ func Initialise(server *mattrax.Server, r *mux.Router) error {
 
 		server.Settings.Set(cmd)
 
-		fmt.Println(previousSettings.Tenant.Name, cmd.Tenant.Name)
 		if previousSettings.Tenant.Name != cmd.Tenant.Name {
 			if err := server.Certificates.GenerateIdentity(pkix.Name{
 				CommonName: cmd.Tenant.Name + " Identity",

@@ -11,7 +11,6 @@ import (
 	mattrax "github.com/mattrax/Mattrax/internal"
 	"github.com/mattrax/Mattrax/internal/devices"
 	"github.com/mattrax/Mattrax/internal/generic"
-	"github.com/mattrax/Mattrax/internal/settings"
 	"github.com/mattrax/Mattrax/internal/types"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
@@ -34,8 +33,9 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 			return
 		}
 
-		if server.Settings.Get().ServerState != settings.StateNormal {
-			// TODO: Propper Advanced Fault
+		// TODO: On Policy endpoint instead if possibleEn
+		if server.Settings.Get().Tenant.EnrollmentDisabled {
+			// TODO: Advanced Fault
 			fault := soap.NewBasicFault("s:Sender", "a:EndpointUnavailable", "the server is currently not ready to accept enrollments")
 			fault.Response(w)
 			return

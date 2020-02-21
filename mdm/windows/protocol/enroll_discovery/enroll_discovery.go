@@ -4,20 +4,15 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 
 	mattrax "github.com/mattrax/Mattrax/internal"
-	generic "github.com/mattrax/Mattrax/internal/generic"
-	"github.com/mattrax/Mattrax/internal/settings"
+	"github.com/mattrax/Mattrax/internal/generic"
 	"github.com/mattrax/Mattrax/internal/types"
 	"github.com/mattrax/Mattrax/mdm/windows/soap"
 	"github.com/mattrax/Mattrax/pkg/xml"
 	"github.com/rs/zerolog/log"
 )
-
-/* Note:
-- This handler was modelled after the Intune MDM discovery endpoint
-- SOAP Fault's and other noted things are different
-*/
 
 // GETHandler handles the HTTP GET request for discovery.
 // The handler returns a HTTP status 200 so the device can determine if an enrollment server exists
@@ -46,21 +41,21 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 		Path:   "/EnrollmentServer/Enrollment.svc",
 	}).String()
 
-	internalFederationServiceURL := (&url.URL{
+	federationServiceURL := (&url.URL{
 		Scheme: "https",
 		Host:   server.Config.Domain,
 		Path:   "/EnrollmentServer/Authenticate",
 	}).String()
 
+	var (
+		authPolicy = "Federated" // For now this is the only supported by Mattrax
+		once       sync.Once
+		response   []byte
+	)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > maxRequestBodySize {
 			fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body too large to process")
-			fault.Response(w)
-			return
-		}
-
-		if server.Settings.Get().ServerState == settings.StateInstallation {
-			fault := soap.NewBasicFault("s:Sender", "a:EndpointUnavailable", "the server is currently not ready to accept enrollments")
 			fault.Response(w)
 			return
 		}
@@ -105,15 +100,6 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 			return
 		}
 
-		// serverSettings := server.Settings.Get()
-
-		var authPolicy = "Federated"
-		var authenticationServiceURL = internalFederationServiceURL
-		// TODO
-		// if serverSettings.Windows.CustomFederationPortal != "" {
-		// 	authenticationServiceURL = serverSettings.Windows.CustomFederationPortal
-		// }
-
 		// Note: Intune disregards what the device supports and returns the AuthPolicy it desires
 		if !cmd.Body.AuthPolicies.IsAuthPolicySupported(authPolicy) {
 			fault := soap.NewEnrollmentFault("s:Sender", "a:InternalServiceFault", authPolicy+" auth policy is not supported by your device by required for enrollment", "DeviceNotSupported", "unsupported auth policy", "")
@@ -121,41 +107,44 @@ func Handler(server *mattrax.Server) http.HandlerFunc {
 			return
 		}
 
-		res := Response{
-			NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
-			NamespaceA: "http://www.w3.org/2005/08/addressing",
-			Header: soap.HeaderRes{
-				Action: soap.MustUnderstand{
-					MustUnderstand: "1",
-					Value:          "http://schemas.microsoft.com/windows/management/2012/01/enrollment/IDiscoveryService/DiscoverResponse",
+		once.Do(func() {
+			res := Response{
+				NamespaceS: "http://www.w3.org/2003/05/soap-envelope",
+				NamespaceA: "http://www.w3.org/2005/08/addressing",
+				Header: soap.HeaderRes{
+					Action: soap.MustUnderstand{
+						MustUnderstand: "1",
+						Value:          "http://schemas.microsoft.com/windows/management/2012/01/enrollment/IDiscoveryService/DiscoverResponse",
+					},
+					ActivityID: generic.GenerateID(),
+					RelatesTo:  cmd.Header.MessageID,
 				},
-				ActivityID: generic.GenerateID(),
-				RelatesTo:  cmd.Header.MessageID,
-			},
-			Body: ResponseBody{
-				NamespaceXSI: "http://www.w3.org/2001/XMLSchema-instance",
-				NamespaceXSD: "http://www.w3.org/2001/XMLSchema",
-				DiscoverResponse: DiscoverResponse{
-					AuthPolicy:                 authPolicy,
-					EnrollmentVersion:          cmd.Body.RequestVersion,
-					EnrollmentPolicyServiceURL: enrollmentPolicyServiceURL,
-					EnrollmentServiceURL:       enrollmentServiceURL,
-					AuthenticationServiceURL:   authenticationServiceURL,
+				Body: ResponseBody{
+					NamespaceXSI: "http://www.w3.org/2001/XMLSchema-instance",
+					NamespaceXSD: "http://www.w3.org/2001/XMLSchema",
+					DiscoverResponse: DiscoverResponse{
+						AuthPolicy:                 authPolicy,
+						EnrollmentVersion:          cmd.Body.RequestVersion,
+						EnrollmentPolicyServiceURL: enrollmentPolicyServiceURL,
+						EnrollmentServiceURL:       enrollmentServiceURL,
+						AuthenticationServiceURL:   federationServiceURL,
+					},
 				},
-			},
-		}
+			}
 
-		// Marshal and send the response to client
-		response, err := xml.Marshal(res)
-		if err != nil {
-			fault := soap.NewBasicFault("s:Reciever", "a:InternalServiceFault", "mattrax error: failed to generate discovery response")
-			fault.Response(w)
-			return
-		}
+			// Marshal and send the response to client
+			var err error
+			response, err = xml.Marshal(res)
+			if err != nil {
+				fault := soap.NewBasicFault("s:Reciever", "a:InternalServiceFault", "mattrax error: failed to generate discovery response")
+				fault.Response(w)
+				return
+			}
+		})
 
 		w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
 		w.Header().Set("Content-Length", strconv.Itoa(len(response)))
-		_, err = w.Write(response)
+		_, err := w.Write(response)
 		if err != nil {
 			log.Error().Str("email", cmd.Body.EmailAddress).Str("device-type", cmd.Body.DeviceType).Err(err).Msg("error: failed to send discovery response body")
 		}
