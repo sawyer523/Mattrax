@@ -1,30 +1,95 @@
 package windows
 
 import (
+	"fmt"
+	"net/http"
+
 	"github.com/gorilla/mux"
-	mattrax "github.com/mattrax/Mattrax/internal"
-	enrolldiscovery "github.com/mattrax/Mattrax/mdm/windows/protocol/enroll_discovery"
-	enrollpolicy "github.com/mattrax/Mattrax/mdm/windows/protocol/enroll_policy"
-	enrollprovision "github.com/mattrax/Mattrax/mdm/windows/protocol/enroll_provision"
-	"github.com/mattrax/Mattrax/mdm/windows/protocol/portals"
+	"github.com/mattrax/Mattrax/internal/mattrax"
 )
 
-// MDM is the global state container for Windows MDM
+const maxRequestBodySize = 5000
+
 type MDM struct {
+	srv *mattrax.Server
+	r   *mux.Router
+
+	EnrollmentPolicyServiceURL    string
+	EnrollmentProvisionServiceURL string
+	EnrollmentManageServiceURL    string
+	AuthenticationServiceURL      string
 }
 
-// Init initialises the Windows MDM components
-func Init(server *mattrax.Server, r *mux.Router) (MDM, error) {
-	mdm := MDM{}
+func Initialise(srv *mattrax.Server) (*MDM, error) {
+	mdm := &MDM{
+		srv: srv,
+	}
+	mdm.r = srv.Router.PathPrefix("/EnrollmentServer").Subrouter()
+	// TODO: Middleware
+	// if r.ContentLength > maxRequestBodySize {
+	// 	fault := soap.NewBasicFault("s:Sender", "s:MessageFormat", "client request body too large to process")
+	// 	fault.Response(w)
+	// 	return
+	// }
+	mdm.r.HandleFunc("/Discovery.svc", mdm.DiscoveryHandler()).Methods(http.MethodGet, http.MethodPost)
+	mdm.r.HandleFunc("/Policy.svc", mdm.PolicyHandler()).Name("winmdm-policy").Methods(http.MethodPost)
+	mdm.r.HandleFunc("/Provision.svc", mdm.ProvisionHandler()).Name("winmdm-provision").Methods(http.MethodPost)
+	mdm.r.HandleFunc("/Manage.svc", mdm.ManageHandler()).Name("winmdm-manage").Methods(http.MethodPost)
 
-	// TODO: expose mdm to handlers and put mattrax.server inside it
-	r.Path("/EnrollmentServer/Discovery.svc").Methods("GET").HandlerFunc(defaultHeaders(enrolldiscovery.GETHandler(server)))
-	r.Path("/EnrollmentServer/Discovery.svc").Methods("POST").HandlerFunc(defaultHeaders(enrolldiscovery.Handler(server)))
-	r.Path("/EnrollmentServer/Policy.svc").Methods("POST").HandlerFunc(defaultHeaders(enrollpolicy.Handler(server)))
-	r.Path("/EnrollmentServer/Enrollment.svc").Methods("POST").HandlerFunc(defaultHeaders(enrollprovision.Handler(server)))
-	r.Path("/ManagementServer/Manage.svc").Methods("POST").HandlerFunc(defaultHeaders(enrollprovision.Handler(server)))
-	r.Path("/EnrollmentServer/Authenticate").Methods("GET").HandlerFunc(portals.FederatedLoginHandler())
-	r.Path("/EnrollmentServer/ToS").Methods("GET").HandlerFunc(portals.AzureTOSHandler())
+	// TODO: Replace with UI
+	mdm.r.HandleFunc("/ToS", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `<!DOCTYPE html><html><head><title>MDM Consent</title></head><body><h3>MDM Consent</h3><button onClick="acceptBtn()">Accept</button><button onClick="denyBtn()">Reject</button><script>
+function acceptBtn() {
+	var urlParams = new URLSearchParams(window.location.search);
+
+	if (!urlParams.has('redirect_uri')) {
+		alert('Redirect url not found. Did you open this in your broswer?');
+	} else {
+		window.location = urlParams.get('redirect_uri') + "?IsAccepted=true&OpaqueBlob=TODOCustomDataFromAzureAD";
+	}
+}
+function denyBtn() {
+	var urlParams = new URLSearchParams(window.location.search);
+
+	if (!urlParams.has('redirect_uri')) {
+		alert('Redirect url not found. Did you open this in your broswer?');
+	} else {
+		window.location = urlParams.get('redirect_uri') + "?IsAccepted=false&error=access_denied&error_description=Access%20is%20denied%2E";
+	}
+}</script></body></html>`)
+	}).Methods(http.MethodGet)
+
+	url, err := mdm.r.Get("winmdm-policy").URL()
+	if err != nil {
+		panic(err) // TODO
+	}
+	url.Scheme = "https"
+	url.Host = srv.Config.Domain
+	mdm.EnrollmentPolicyServiceURL = url.String()
+
+	url, err = mdm.r.Get("winmdm-provision").URL()
+	if err != nil {
+		panic(err) // TODO
+	}
+	url.Scheme = "https"
+	url.Host = srv.Config.Domain
+	mdm.EnrollmentProvisionServiceURL = url.String()
+
+	url, err = mdm.r.Get("winmdm-manage").URL()
+	if err != nil {
+		panic(err) // TODO
+	}
+	url.Scheme = "https"
+	url.Host = srv.Config.Domain
+	mdm.EnrollmentManageServiceURL = url.String()
+
+	url, err = srv.Router.Get("auth").URL()
+	if err != nil {
+		panic(err) // TODO
+	}
+	url.Scheme = "https"
+	url.Host = srv.Config.Domain
+	mdm.AuthenticationServiceURL = url.String()
 
 	return mdm, nil
 }
